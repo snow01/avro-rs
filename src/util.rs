@@ -43,12 +43,18 @@ impl DecodeError {
 pub trait MapHelper {
     fn string(&self, key: &str) -> Option<String>;
 
+    fn bool(&self, key: &str) -> bool;
+
     fn name(&self) -> Option<String> {
         self.string("name")
     }
 
     fn doc(&self) -> Option<String> {
         self.string("doc")
+    }
+
+    fn allow_partial(&self) -> bool {
+        self.bool("allow_partial")
     }
 }
 
@@ -57,6 +63,13 @@ impl MapHelper for Map<String, Value> {
         self.get(key)
             .and_then(|v| v.as_str())
             .map(|v| v.to_string())
+    }
+
+    fn bool(&self, key: &str) -> bool {
+        match self.get(key).and_then(|v| v.as_bool()) {
+            Some(val) => val,
+            None => false
+        }
     }
 }
 

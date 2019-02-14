@@ -87,6 +87,7 @@ pub enum Schema {
         doc: Documentation,
         fields: Vec<RecordField>,
         lookup: HashMap<String, usize>,
+        allow_partial: bool,
     },
     /// An `enum` Avro schema.
     Enum {
@@ -484,6 +485,7 @@ impl Schema {
             doc: complex.doc(),
             fields,
             lookup,
+            allow_partial: complex.allow_partial(),
         })
     }
 
@@ -868,6 +870,7 @@ mod tests {
                 },
             ],
             lookup,
+            allow_partial: false,
         };
 
         assert_eq!(expected, schema);

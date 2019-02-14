@@ -279,10 +279,12 @@ impl Value {
             (&Value::Map(ref items), &Schema::Map(ref inner)) => {
                 items.iter().all(|(_, value)| value.validate(inner))
             },
-            (&Value::Record(ref record_fields), &Schema::Record { ref fields, .. }) => {
+            (&Value::Record(ref record_fields), &Schema::Record { ref fields, allow_partial, .. }) => {
+                // handle case of missing fields from value
                 fields.len() == record_fields.len() && fields.iter().zip(record_fields.iter()).all(
                     |(field, &(ref name, ref value))| {
-                        field.name == *name && value.validate(&field.schema)
+                        field.name == *name &&
+                            ((allow_partial && *value == Value::Null && field.schema != Schema::Null) || value.validate(&field.schema))
                     },
                 )
             },
@@ -322,7 +324,7 @@ impl Value {
             Schema::Enum { ref symbols, .. } => self.resolve_enum(symbols),
             Schema::Array(ref inner) => self.resolve_array(inner),
             Schema::Map(ref inner) => self.resolve_map(inner),
-            Schema::Record { ref fields, .. } => self.resolve_record(fields),
+            Schema::Record { ref fields, allow_partial, .. } => self.resolve_record(fields, allow_partial),
         }
     }
 
@@ -498,14 +500,14 @@ impl Value {
         }
     }
 
-    fn resolve_record(self, fields: &[RecordField]) -> Result<Self, Error> {
+    fn resolve_record(self, fields: &[RecordField], allow_partial: bool) -> Result<Self, Error> {
         let mut items = match self {
             Value::Map(items) => Ok(items),
             Value::Record(fields) => Ok(fields.into_iter().collect::<HashMap<_, _>>()),
-            other => Err(Error::from(SchemaResolutionError::new(format!(
+            other => Err(SchemaResolutionError::new(format!(
                 "Record({:?}) expected, got {:?}",
                 fields, other
-            )))),
+            ))),
         }?;
 
         let new_fields = fields
@@ -521,16 +523,26 @@ impl Value {
                             _ => value.clone().avro(),
                         },
                         _ => {
-                            return Err(SchemaResolutionError::new(format!(
-                                "missing field {} in record",
-                                field.name
-                            )).into())
+                            if allow_partial {
+                                Value::Null
+                            } else {
+                                return Err(SchemaResolutionError::new(format!(
+                                    "missing field {} in record",
+                                    field.name
+                                )).into())
+                            }
                         },
                     },
                 };
-                value
-                    .resolve(&field.schema)
-                    .map(|value| (field.name.clone(), value))
+
+                // for partial fields put value as Value::Null, which is handled properly at encode and decode time
+                if allow_partial && value == Value::Null && field.schema != Schema::Null {
+                    Ok((field.name.clone(), value))
+                } else {
+                    value
+                        .resolve(&field.schema)
+                        .map(|value| (field.name.clone(), value))
+                }
             }).collect::<Result<Vec<_>, _>>()?;
 
         Ok(Value::Record(new_fields))
@@ -667,6 +679,7 @@ mod tests {
                 },
             ],
             lookup: HashMap::new(),
+            allow_partial: false,
         };
 
         assert!(

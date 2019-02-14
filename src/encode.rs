@@ -91,11 +91,36 @@ pub fn encode_ref(value: &Value, schema: &Schema, buffer: &mut Vec<u8>) {
         Value::Record(fields) => {
             if let Schema::Record {
                 fields: ref schema_fields,
+                allow_partial,
                 ..
             } = *schema
             {
-                for (i, &(_, ref value)) in fields.iter().enumerate() {
-                    encode_ref(value, &schema_fields[i].schema, buffer);
+                if allow_partial {
+                    let buffer_index = buffer.len();
+                    let len = fields.len();
+                    let field_missing_index_size = (len / 8) + 1;
+                    let mut field_missing_index: Vec<u8> = Vec::with_capacity(field_missing_index_size);
+
+                    for _ in 0..field_missing_index_size {
+                        field_missing_index.push(0u8);
+                    }
+
+                    for (i, &(_, ref value)) in fields.iter().enumerate() {
+                        // these fields need to be skipped
+                        if *value == Value::Null && schema_fields[i].schema != Schema::Null {
+                            field_missing_index[i / 8] |= 1u8 << (i % 8)
+                        } else {
+                            encode_ref(value, &schema_fields[i].schema, buffer);
+                        }
+                    }
+
+                    for i in buffer_index..(buffer_index + field_missing_index_size) {
+                        buffer.insert(i, field_missing_index[i - buffer_index]);
+                    }    
+                } else {
+                    for (i, &(_, ref value)) in fields.iter().enumerate() {
+                        encode_ref(value, &schema_fields[i].schema, buffer);
+                    }
                 }
             }
         },

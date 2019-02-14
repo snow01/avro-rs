@@ -126,13 +126,36 @@ pub fn decode<R: Read>(schema: &Schema, reader: &mut R) -> Result<Value, Error> 
                 None => Err(DecodeError::new("Union index out of bounds").into()),
             }
         },
-        Schema::Record { ref fields, .. } => {
+        Schema::Record { ref fields, allow_partial, .. } => {
             // Benchmarks indicate ~10% improvement using this method.
             let mut items = Vec::new();
-            for field in fields {
-                // This clone is also expensive. See if we can do away with it...
-                items.push((field.name.clone(), decode(&field.schema, reader)?));
+
+            if allow_partial {
+                let len = fields.len();
+                let field_missing_index_size = (len / 8) + 1;
+
+                // read that many bytes
+                let mut field_missing_index = Vec::with_capacity(field_missing_index_size);
+                unsafe {
+                    field_missing_index.set_len(field_missing_index_size);
+                }
+                reader.read_exact(&mut field_missing_index)?;
+
+                for (i, field) in fields.iter().enumerate() {
+                    let missing_field: bool = (field_missing_index[i / 8] & 1u8 << (i % 8)) > 0;
+
+                    if !missing_field {
+                        // This clone is also expensive. See if we can do away with it...
+                        items.push((field.name.clone(), decode(&field.schema, reader)?));
+                    }
+                }
+            } else {
+                for field in fields {
+                    // This clone is also expensive. See if we can do away with it...
+                    items.push((field.name.clone(), decode(&field.schema, reader)?));
+                }    
             }
+            
             Ok(Value::Record(items))
             // fields
             // .iter()
