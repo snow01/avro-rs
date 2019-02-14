@@ -598,6 +598,7 @@ impl Serialize for Schema {
                 ref name,
                 ref doc,
                 ref fields,
+                ref allow_partial,
                 ..
             } => {
                 let mut map = serializer.serialize_map(None)?;
@@ -613,6 +614,11 @@ impl Serialize for Schema {
                     map.serialize_entry("aliases", aliases)?;
                 }
                 map.serialize_entry("fields", fields)?;
+
+                if *allow_partial {
+                    map.serialize_entry("allow_partial", allow_partial)?;
+                }
+
                 map.end()
             },
             Schema::Enum {
