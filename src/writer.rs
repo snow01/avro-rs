@@ -290,7 +290,7 @@ impl<'a, W: Write> Writer<'a, W> {
         let schema_bytes = serde_json::to_string(self.schema)?.into_bytes();
 
         let mut metadata = HashMap::with_capacity(2);
-        metadata.insert("avro.schema", Value::Bytes(schema_bytes));
+        metadata.insert("avro.schema", Value::Bytes(schema_bytes, None));
         metadata.insert("avro.codec", self.codec.avro());
 
         let mut header = Vec::new();
@@ -382,7 +382,7 @@ mod tests {
     #[test]
     fn test_union() {
         let schema = Schema::parse_str(UNION_SCHEMA).unwrap();
-        let union = Value::Union(Box::new(Value::Long(3)));
+        let union = Value::Union(Box::new(Value::Long(3, None)), None);
 
         let mut expected = Vec::new();
         zig_i64(1, &mut expected);

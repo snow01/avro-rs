@@ -15,7 +15,7 @@ pub fn encode(value: &Value, schema: &Schema, buffer: &mut Vec<u8>) {
 
 fn encode_bytes<B: AsRef<[u8]> + ?Sized>(s: &B, buffer: &mut Vec<u8>) {
     let bytes = s.as_ref();
-    encode(&Value::Long(bytes.len() as i64), &Schema::Long, buffer);
+    encode(&Value::Long(bytes.len() as i64, None), &Schema::Long, buffer);
     buffer.extend_from_slice(bytes);
 }
 
@@ -35,13 +35,13 @@ fn encode_int(i: i32, buffer: &mut Vec<u8>) {
 pub fn encode_ref(value: &Value, schema: &Schema, buffer: &mut Vec<u8>) {
     match value {
         Value::Null => (),
-        Value::Boolean(b) => buffer.push(if *b { 1u8 } else { 0u8 }),
-        Value::Int(i) => encode_int(*i, buffer),
-        Value::Long(i) => encode_long(*i, buffer),
-        Value::Float(x) => buffer.extend_from_slice(&unsafe { transmute::<f32, [u8; 4]>(*x) }),
-        Value::Double(x) => buffer.extend_from_slice(&unsafe { transmute::<f64, [u8; 8]>(*x) }),
-        Value::Bytes(bytes) => encode_bytes(bytes, buffer),
-        Value::String(s) => match *schema {
+        Value::Boolean(b, _) => buffer.push(if *b { 1u8 } else { 0u8 }),
+        Value::Int(i, _) => encode_int(*i, buffer),
+        Value::Long(i, _) => encode_long(*i, buffer),
+        Value::Float(x, _) => buffer.extend_from_slice(&unsafe { transmute::<f32, [u8; 4]>(*x) }),
+        Value::Double(x, _) => buffer.extend_from_slice(&unsafe { transmute::<f64, [u8; 8]>(*x) }),
+        Value::Bytes(bytes, _) => encode_bytes(bytes, buffer),
+        Value::String(s, _) => match *schema {
             Schema::String => {
                 encode_bytes(s, buffer);
             },
@@ -52,9 +52,9 @@ pub fn encode_ref(value: &Value, schema: &Schema, buffer: &mut Vec<u8>) {
             },
             _ => (),
         },
-        Value::Fixed(_, bytes) => buffer.extend(bytes),
-        Value::Enum(i, _) => encode_int(*i, buffer),
-        Value::Union(item) => {
+        Value::Fixed(_, bytes, _) => buffer.extend(bytes),
+        Value::Enum(i, _, _) => encode_int(*i, buffer),
+        Value::Union(item, _) => {
             if let Schema::Union(ref inner) = *schema {
                 // Find the schema that is matched here. Due to validation, this should always
                 // return a value.
@@ -65,7 +65,7 @@ pub fn encode_ref(value: &Value, schema: &Schema, buffer: &mut Vec<u8>) {
                 encode_ref(&*item, inner_schema, buffer);
             }
         },
-        Value::Array(items) => {
+        Value::Array(items, _) => {
             if let Schema::Array(ref inner) = *schema {
                 if items.len() > 0 {
                     encode_long(items.len() as i64, buffer);
@@ -76,7 +76,7 @@ pub fn encode_ref(value: &Value, schema: &Schema, buffer: &mut Vec<u8>) {
                 buffer.push(0u8);
             }
         },
-        Value::Map(items) => {
+        Value::Map(items, _) => {
             if let Schema::Map(ref inner) = *schema {
                 if items.len() > 0 {
                     encode_long(items.len() as i64, buffer);
@@ -88,41 +88,38 @@ pub fn encode_ref(value: &Value, schema: &Schema, buffer: &mut Vec<u8>) {
                 buffer.push(0u8);
             }
         },
-        Value::Record(fields) => {
+        Value::Record(fields, _) => {
             if let Schema::Record {
                 fields: ref schema_fields,
-                allow_partial,
                 ..
             } = *schema
             {
-                if allow_partial {
-                    let buffer_index = buffer.len();
-                    let len = fields.len();
-                    let field_missing_index_size = (len / 8) + 1;
-                    let mut field_missing_index: Vec<u8> = Vec::with_capacity(field_missing_index_size);
-
-                    for _ in 0..field_missing_index_size {
-                        field_missing_index.push(0u8);
-                    }
-
-                    for (i, &(_, ref value)) in fields.iter().enumerate() {
-                        // these fields need to be skipped
-                        if *value == Value::Null && schema_fields[i].schema != Schema::Null {
-                            field_missing_index[i / 8] |= 1u8 << (i % 8)
-                        } else {
-                            encode_ref(value, &schema_fields[i].schema, buffer);
-                        }
-                    }
-
-                    for i in buffer_index..(buffer_index + field_missing_index_size) {
-                        buffer.insert(i, field_missing_index[i - buffer_index]);
-                    }    
-                } else {
-                    for (i, &(_, ref value)) in fields.iter().enumerate() {
-                        encode_ref(value, &schema_fields[i].schema, buffer);
-                    }
+                for (i, &(_, ref value)) in fields.iter().enumerate() {
+                    encode_ref(value, &schema_fields[i].schema, buffer);
                 }
             }
+        },
+
+        Value::Date(i, _) => encode_long(*i, buffer),
+        Value::Set(items, _) => {
+            if items.len() > 0 {
+                encode_long(items.len() as i64, buffer);
+                for item in items.iter() {
+                    encode_bytes(item, buffer);
+                }
+            }
+            buffer.push(0u8);
+        },
+        Value::LruSet(items, _, _) => {
+            if items.len() > 0 {
+                encode_long(items.len() as i64, buffer);
+                for (key, value) in items {
+                    encode_bytes(key, buffer);
+                    encode_long(value.access_time, buffer);
+                    encode_long(value.count, buffer);
+                }
+            }
+            buffer.push(0u8);
         },
     }
 }
@@ -143,7 +140,7 @@ mod tests {
         let mut buf = Vec::new();
         let empty: Vec<Value> = Vec::new();
         encode(
-            &Value::Array(empty),
+            &Value::Array(empty, None),
             &Schema::Array(Box::new(Schema::Int)),
             &mut buf,
         );
@@ -155,7 +152,7 @@ mod tests {
         let mut buf = Vec::new();
         let empty: HashMap<String, Value> = HashMap::new();
         encode(
-            &Value::Map(empty),
+            &Value::Map(empty, None),
             &Schema::Map(Box::new(Schema::Int)),
             &mut buf,
         );

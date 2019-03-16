@@ -56,6 +56,10 @@ pub trait MapHelper {
     fn allow_partial(&self) -> bool {
         self.bool("allow_partial")
     }
+
+    fn index(&self) -> bool {
+        self.bool("index")
+    }
 }
 
 impl MapHelper for Map<String, Value> {

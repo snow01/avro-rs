@@ -38,6 +38,7 @@ impl ToAvro for Codec {
                 Codec::Snappy => "snappy",
             }.to_owned()
                 .into_bytes(),
+            None,
         )
     }
 }

@@ -91,7 +91,7 @@ impl<'b> ser::Serializer for &'b mut Serializer {
     type SerializeStructVariant = StructSerializer;
 
     fn serialize_bool(self, v: bool) -> Result<Self::Ok, Self::Error> {
-        Ok(Value::Boolean(v))
+        Ok(Value::Boolean(v, None))
     }
 
     fn serialize_i8(self, v: i8) -> Result<Self::Ok, Self::Error> {
@@ -103,11 +103,11 @@ impl<'b> ser::Serializer for &'b mut Serializer {
     }
 
     fn serialize_i32(self, v: i32) -> Result<Self::Ok, Self::Error> {
-        Ok(Value::Int(v))
+        Ok(Value::Int(v, None))
     }
 
     fn serialize_i64(self, v: i64) -> Result<Self::Ok, Self::Error> {
-        Ok(Value::Long(v))
+        Ok(Value::Long(v, None))
     }
 
     fn serialize_u8(self, v: u8) -> Result<Self::Ok, Self::Error> {
@@ -135,11 +135,11 @@ impl<'b> ser::Serializer for &'b mut Serializer {
     }
 
     fn serialize_f32(self, v: f32) -> Result<Self::Ok, Self::Error> {
-        Ok(Value::Float(v))
+        Ok(Value::Float(v, None))
     }
 
     fn serialize_f64(self, v: f64) -> Result<Self::Ok, Self::Error> {
-        Ok(Value::Double(v))
+        Ok(Value::Double(v, None))
     }
 
     fn serialize_char(self, v: char) -> Result<Self::Ok, Self::Error> {
@@ -147,11 +147,11 @@ impl<'b> ser::Serializer for &'b mut Serializer {
     }
 
     fn serialize_str(self, v: &str) -> Result<Self::Ok, Self::Error> {
-        Ok(Value::String(v.to_owned()))
+        Ok(Value::String(v.to_owned(), None))
     }
 
     fn serialize_bytes(self, v: &[u8]) -> Result<Self::Ok, Self::Error> {
-        Ok(Value::Bytes(v.to_owned()))
+        Ok(Value::Bytes(v.to_owned(), None))
     }
 
     fn serialize_none(self) -> Result<Self::Ok, Self::Error> {
@@ -180,7 +180,7 @@ impl<'b> ser::Serializer for &'b mut Serializer {
         index: u32,
         variant: &'static str,
     ) -> Result<Self::Ok, Self::Error> {
-        Ok(Value::Enum(index as i32, variant.to_string()))
+        Ok(Value::Enum(index as i32, variant.to_string(), None))
     }
 
     fn serialize_newtype_struct<T: ?Sized>(
@@ -270,7 +270,7 @@ impl<'a> ser::SerializeSeq for SeqSerializer {
     }
 
     fn end(self) -> Result<Self::Ok, Self::Error> {
-        Ok(Value::Array(self.items))
+        Ok(Value::Array(self.items, None))
     }
 }
 
@@ -332,7 +332,7 @@ impl ser::SerializeMap for MapSerializer {
     {
         let key = key.serialize(&mut Serializer::default())?;
 
-        if let Value::String(key) = key {
+        if let Value::String(key,None) = key {
             self.indices.insert(key, self.values.len());
             Ok(())
         } else {
@@ -357,7 +357,7 @@ impl ser::SerializeMap for MapSerializer {
             }
         }
 
-        Ok(Value::Map(items))
+        Ok(Value::Map(items, None))
     }
 }
 
@@ -381,7 +381,7 @@ impl ser::SerializeStruct for StructSerializer {
     }
 
     fn end(self) -> Result<Self::Ok, Self::Error> {
-        Ok(Value::Record(self.fields))
+        Ok(Value::Record(self.fields, None))
     }
 }
 
@@ -427,9 +427,9 @@ mod tests {
             b: "foo".to_owned(),
         };
         let expected = Value::Record(vec![
-            ("a".to_owned(), Value::Long(27)),
-            ("b".to_owned(), Value::String("foo".to_owned())),
-        ]);
+            ("a".to_owned(), Value::Long(27, None)),
+            ("b".to_owned(), Value::String("foo".to_owned(), None)),
+        ], None);
 
         assert_eq!(to_value(test).unwrap(), expected);
     }

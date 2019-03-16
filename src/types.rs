@@ -1,11 +1,32 @@
 //! Logic handling the intermediate representation of Avro values.
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::hash::BuildHasher;
+use std::u8;
 
 use failure::Error;
 use serde_json::Value as JsonValue;
 
+use crate::LruLimit;
 use crate::schema::{RecordField, Schema, SchemaKind, UnionSchema};
+
+const ACCESS_TIME: &str = "access_time";
+const COUNT: &str = "count";
+
+lazy_static! {
+    pub static ref LRU_VALUE_SCHEMA: Schema = Schema::parse_str(
+            r#"
+            {
+                "type": "record",
+                "name": "lru_value",
+                "fields": [
+                    {"access_time": "a", "type": "long", "default": 0},
+                    {"count": "b", "type": "long", "default": 0}
+                ]
+            }
+        "#,
+        ).unwrap();
+}
 
 /// Describes errors happened while performing schema resolution on Avro data.
 #[derive(Fail, Debug)]
@@ -14,11 +35,16 @@ pub struct SchemaResolutionError(String);
 
 impl SchemaResolutionError {
     pub fn new<S>(msg: S) -> SchemaResolutionError
-    where
-        S: Into<String>,
+        where
+            S: Into<String>,
     {
         SchemaResolutionError(msg.into())
     }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ValueSetting {
+    index: bool
 }
 
 /// Represents any valid Avro value
@@ -28,43 +54,98 @@ impl SchemaResolutionError {
 pub enum Value {
     /// A `null` Avro value.
     Null,
+
     /// A `boolean` Avro value.
-    Boolean(bool),
+    Boolean(bool, Option<ValueSetting>),
+
     /// A `int` Avro value.
-    Int(i32),
+    Int(i32, Option<ValueSetting>),
+
     /// A `long` Avro value.
-    Long(i64),
+    Long(i64, Option<ValueSetting>),
+
     /// A `float` Avro value.
-    Float(f32),
+    Float(f32, Option<ValueSetting>),
+
     /// A `double` Avro value.
-    Double(f64),
+    Double(f64, Option<ValueSetting>),
+
     /// A `bytes` Avro value.
-    Bytes(Vec<u8>),
+    Bytes(Vec<u8>, Option<ValueSetting>),
+
     /// A `string` Avro value.
-    String(String),
+    String(String, Option<ValueSetting>),
+
     /// A `fixed` Avro value.
     /// The size of the fixed value is represented as a `usize`.
-    Fixed(usize, Vec<u8>),
+    Fixed(usize, Vec<u8>, Option<ValueSetting>),
+
     /// An `enum` Avro value.
     ///
     /// An Enum is represented by a symbol and its position in the symbols list
     /// of its corresponding schema.
     /// This allows schema-less encoding, as well as schema resolution while
     /// reading values.
-    Enum(i32, String),
+    Enum(i32, String, Option<ValueSetting>),
+
     /// An `union` Avro value.
-    Union(Box<Value>),
+    Union(Box<Value>, Option<ValueSetting>),
+
     /// An `array` Avro value.
-    Array(Vec<Value>),
+    Array(Vec<Value>, Option<ValueSetting>),
+
     /// A `map` Avro value.
-    Map(HashMap<String, Value>),
+    Map(HashMap<String, Value>, Option<ValueSetting>),
+
     /// A `record` Avro value.
     ///
     /// A Record is represented by a vector of (`<record name>`, `value`).
     /// This allows schema-less encoding.
     ///
     /// See [Record](types.Record) for a more user-friendly support.
-    Record(Vec<(String, Value)>),
+    Record(Vec<(String, Value)>, Option<ValueSetting>),
+
+    // date is serialized as millis since epoch
+    Date(i64, Option<ValueSetting>),
+
+    // hashset of values
+    Set(HashSet<String>, Option<ValueSetting>),
+
+    // vector of value, access time, counts
+    LruSet(HashMap<String, LruValue>, LruLimit, Option<ValueSetting>),
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct LruValue {
+    pub access_time: i64,
+    pub count: i64,
+}
+
+impl LruValue {
+    pub fn new(access_time: i64, count: i64) -> LruValue {
+        LruValue {
+            access_time,
+            count
+        }
+    }
+
+    fn json(&self) -> JsonValue {
+        let mut map: serde_json::Map<String, JsonValue> = serde_json::Map::new();
+        map.insert(ACCESS_TIME.to_owned(), json!(self.access_time));
+        map.insert(COUNT.to_owned(), json!(self.count));
+
+        JsonValue::Object(map)
+    }
+}
+
+impl ToAvro for LruValue {
+    fn avro(self) -> Value {
+        let mut fields: Vec<(String, Value)> = Vec::new();
+        fields.push((ACCESS_TIME.to_owned(), Value::Long(self.access_time as i64, None)));
+        fields.push((COUNT.to_owned(), Value::Long(self.count as i64, None)));
+
+        Value::Record(fields, None)
+    }
 }
 
 /// Any structure implementing the [ToAvro](trait.ToAvro.html) trait will be usable
@@ -74,11 +155,11 @@ pub trait ToAvro {
     fn avro(self) -> Value;
 }
 
-macro_rules! to_avro(
+macro_rules! to_avro (
     ($t:ty, $v:expr) => (
         impl ToAvro for $t {
             fn avro(self) -> Value {
-                $v(self)
+                $v(self, None)
             }
         }
     );
@@ -105,51 +186,53 @@ impl ToAvro for usize {
 
 impl<'a> ToAvro for &'a str {
     fn avro(self) -> Value {
-        Value::String(self.to_owned())
+        Value::String(self.to_owned(), None)
     }
 }
 
 impl<'a> ToAvro for &'a [u8] {
     fn avro(self) -> Value {
-        Value::Bytes(self.to_owned())
+        Value::Bytes(self.to_owned(), None)
     }
 }
 
 impl<T> ToAvro for Option<T>
-where
-    T: ToAvro,
+    where
+        T: ToAvro,
 {
     fn avro(self) -> Value {
         let v = match self {
             Some(v) => T::avro(v),
             None => Value::Null,
         };
-        Value::Union(Box::new(v))
+        Value::Union(Box::new(v), None)
     }
 }
 
 impl<T, S: BuildHasher> ToAvro for HashMap<String, T, S>
-where
-    T: ToAvro,
+    where
+        T: ToAvro,
 {
     fn avro(self) -> Value {
         Value::Map(
             self.into_iter()
                 .map(|(key, value)| (key, value.avro()))
                 .collect::<_>(),
+            None,
         )
     }
 }
 
 impl<'a, T, S: BuildHasher> ToAvro for HashMap<&'a str, T, S>
-where
-    T: ToAvro,
+    where
+        T: ToAvro,
 {
     fn avro(self) -> Value {
         Value::Map(
             self.into_iter()
                 .map(|(key, value)| (key.to_owned(), value.avro()))
                 .collect::<_>(),
+            None,
         )
     }
 }
@@ -200,7 +283,7 @@ impl<'a> Record<'a> {
                     fields,
                     schema_lookup,
                 })
-            },
+            }
             _ => None,
         }
     }
@@ -211,8 +294,8 @@ impl<'a> Record<'a> {
     /// **NOTE** Only ensure that the field name is present in the `Schema` given when creating
     /// this `Record`. Does not perform any schema validation.
     pub fn put<V>(&mut self, field: &str, value: V)
-    where
-        V: ToAvro,
+        where
+            V: ToAvro,
     {
         if let Some(&position) = self.schema_lookup.get(field) {
             self.fields[position].1 = value.avro()
@@ -222,7 +305,7 @@ impl<'a> Record<'a> {
 
 impl<'a> ToAvro for Record<'a> {
     fn avro(self) -> Value {
-        Value::Record(self.fields)
+        Value::Record(self.fields, None)
     }
 }
 
@@ -230,20 +313,25 @@ impl ToAvro for JsonValue {
     fn avro(self) -> Value {
         match self {
             JsonValue::Null => Value::Null,
-            JsonValue::Bool(b) => Value::Boolean(b),
-            JsonValue::Number(ref n) if n.is_i64() => Value::Long(n.as_i64().unwrap()),
-            JsonValue::Number(ref n) if n.is_f64() => Value::Double(n.as_f64().unwrap()),
-            JsonValue::Number(n) => Value::Long(n.as_u64().unwrap() as i64), // TODO: Not so great
-            JsonValue::String(s) => Value::String(s),
+            JsonValue::Bool(b) => Value::Boolean(b, None),
+            JsonValue::Number(ref n) if n.is_i64() => Value::Long(n.as_i64().unwrap(), None),
+            JsonValue::Number(ref n) if n.is_f64() => Value::Double(n.as_f64().unwrap(), None),
+            JsonValue::Number(n) => Value::Long(n.as_u64().unwrap() as i64, None), // Not so great
+            JsonValue::String(s) => Value::String(s, None),
             JsonValue::Array(items) => {
-                Value::Array(items.into_iter().map(|item| item.avro()).collect::<_>())
-            },
+                Value::Array(items.into_iter().map(|item| item.avro()).collect::<_>(), None)
+            }
             JsonValue::Object(items) => Value::Map(
                 items
                     .into_iter()
                     .map(|(key, value)| (key, value.avro()))
                     .collect::<_>(),
+                None,
             ),
+
+            // there is no equivalent of set and lru_set in json
+            // set in json would be represented as Array
+            // while lru_set in json would be represented as Object
         }
     }
 }
@@ -256,38 +344,50 @@ impl Value {
     pub fn validate(&self, schema: &Schema) -> bool {
         match (self, schema) {
             (&Value::Null, &Schema::Null) => true,
-            (&Value::Boolean(_), &Schema::Boolean) => true,
-            (&Value::Int(_), &Schema::Int) => true,
-            (&Value::Long(_), &Schema::Long) => true,
-            (&Value::Float(_), &Schema::Float) => true,
-            (&Value::Double(_), &Schema::Double) => true,
-            (&Value::Bytes(_), &Schema::Bytes) => true,
-            (&Value::String(_), &Schema::String) => true,
-            (&Value::Fixed(n, _), &Schema::Fixed { size, .. }) => n == size,
-            (&Value::String(ref s), &Schema::Enum { ref symbols, .. }) => symbols.contains(s),
-            (&Value::Enum(i, ref s), &Schema::Enum { ref symbols, .. }) => symbols
+            (&Value::Boolean(_, _), &Schema::Boolean) => true,
+            (&Value::Int(_, _), &Schema::Int) => true,
+            (&Value::Long(_, _), &Schema::Long) => true,
+            (&Value::Float(_, _), &Schema::Float) => true,
+            (&Value::Double(_, _), &Schema::Double) => true,
+            (&Value::Bytes(_, _), &Schema::Bytes) => true,
+            (&Value::String(_, _), &Schema::String) => true,
+            (&Value::Fixed(n, _, _), &Schema::Fixed { size, .. }) => n == size,
+            (&Value::String(ref s, _), &Schema::Enum { ref symbols, .. }) => symbols.contains(s),
+            (&Value::Enum(i, ref s, _), &Schema::Enum { ref symbols, .. }) => symbols
                 .get(i as usize)
                 .map(|ref symbol| symbol == &s)
                 .unwrap_or(false),
             // (&Value::Union(None), &Schema::Union(_)) => true,
-            (&Value::Union(ref value), &Schema::Union(ref inner)) => {
+            (&Value::Union(ref value, _), &Schema::Union(ref inner)) => {
                 inner.find_schema(value).is_some()
-            },
-            (&Value::Array(ref items), &Schema::Array(ref inner)) => {
+            }
+            (&Value::Array(ref items, _), &Schema::Array(ref inner)) => {
                 items.iter().all(|item| item.validate(inner))
-            },
-            (&Value::Map(ref items), &Schema::Map(ref inner)) => {
+            }
+            (&Value::Map(ref items, _), &Schema::Map(ref inner)) => {
                 items.iter().all(|(_, value)| value.validate(inner))
-            },
-            (&Value::Record(ref record_fields), &Schema::Record { ref fields, allow_partial, .. }) => {
+            }
+            (&Value::Record(ref record_fields, _), &Schema::Record { ref fields, .. }) => {
                 // handle case of missing fields from value
                 fields.len() == record_fields.len() && fields.iter().zip(record_fields.iter()).all(
                     |(field, &(ref name, ref value))| {
-                        field.name == *name &&
-                            ((allow_partial && *value == Value::Null && field.schema != Schema::Null) || value.validate(&field.schema))
+                        field.name == *name && value.validate(&field.schema)
                     },
                 )
-            },
+            }
+
+            (&Value::Date(ref value, _), &Schema::Date) => {
+                // if value can be represented as u4, then it's a valid Date
+                true
+            }
+            (&Value::Set(ref items, _), &Schema::Set) => {
+                // if value could be represented as typed HashSet of String, then no further validations are required.
+                true
+            }
+            (&Value::LruSet(ref items, _, _), &Schema::LruSet(ref lru_limit)) => {
+                // if value could be represented as typed HashMap of String and LruValue, then no further validations are required.
+                true
+            }
             _ => false,
         }
     }
@@ -305,26 +405,70 @@ impl Value {
         {
             // Pull out the Union, and attempt to resolve against it.
             let v = match self {
-                Value::Union(b) => *b,
+                Value::Union(b, _) => *b,
                 _ => unreachable!(),
             };
             self = v;
         }
         match *schema {
             Schema::Null => self.resolve_null(),
-            Schema::Boolean => self.resolve_boolean(),
-            Schema::Int => self.resolve_int(),
-            Schema::Long => self.resolve_long(),
-            Schema::Float => self.resolve_float(),
-            Schema::Double => self.resolve_double(),
-            Schema::Bytes => self.resolve_bytes(),
-            Schema::String => self.resolve_string(),
-            Schema::Fixed { size, .. } => self.resolve_fixed(size),
-            Schema::Union(ref inner) => self.resolve_union(inner),
-            Schema::Enum { ref symbols, .. } => self.resolve_enum(symbols),
-            Schema::Array(ref inner) => self.resolve_array(inner),
-            Schema::Map(ref inner) => self.resolve_map(inner),
-            Schema::Record { ref fields, allow_partial, .. } => self.resolve_record(fields, allow_partial),
+            Schema::Boolean => self.resolve_boolean(false),
+            Schema::Int => self.resolve_int(false),
+            Schema::Long => self.resolve_long(false),
+            Schema::Float => self.resolve_float(false),
+            Schema::Double => self.resolve_double(false),
+            Schema::Bytes => self.resolve_bytes(false),
+            Schema::String => self.resolve_string(false),
+            Schema::Fixed { size, .. } => self.resolve_fixed(size, false),
+            Schema::Union(ref inner) => self.resolve_union(inner, false),
+            Schema::Enum { ref symbols, .. } => self.resolve_enum(symbols, false),
+            Schema::Array(ref inner) => self.resolve_array(inner, false),
+            Schema::Map(ref inner) => self.resolve_map(inner, false),
+            Schema::Record { ref name, ref fields, .. } => self.resolve_record(fields, name.index),
+
+            Schema::Date => self.resolve_datetime(false),
+            Schema::Set => self.resolve_set(false),
+            Schema::LruSet(ref lru_limit) => self.resolve_lru_set(lru_limit.clone(), false),
+        }
+    }
+
+    /// Attempt to perform schema resolution on the value, with the given
+    /// [Schema](../schema/enum.Schema.html).
+    ///
+    /// See [Schema Resolution](https://avro.apache.org/docs/current/spec.html#Schema+Resolution)
+    /// in the Avro specification for the full set of rules of schema
+    /// resolution.
+    fn resolve_internal(mut self, schema: &Schema, index: bool) -> Result<Self, Error> {
+        // Check if this schema is a union, and if the reader schema is not.
+        if SchemaKind::from(&self) == SchemaKind::Union
+            && SchemaKind::from(schema) != SchemaKind::Union
+        {
+            // Pull out the Union, and attempt to resolve against it.
+            let v = match self {
+                Value::Union(b, _) => *b,
+                _ => unreachable!(),
+            };
+            self = v;
+        }
+        match *schema {
+            Schema::Null => self.resolve_null(),
+            Schema::Boolean => self.resolve_boolean(index),
+            Schema::Int => self.resolve_int(false),
+            Schema::Long => self.resolve_long(false),
+            Schema::Float => self.resolve_float(false),
+            Schema::Double => self.resolve_double(false),
+            Schema::Bytes => self.resolve_bytes(false),
+            Schema::String => self.resolve_string(index),
+            Schema::Fixed { size, .. } => self.resolve_fixed(size, false),
+            Schema::Union(ref inner) => self.resolve_union(inner, false),
+            Schema::Enum { ref symbols, .. } => self.resolve_enum(symbols, index),
+            Schema::Array(ref inner) => self.resolve_array(inner, index),
+            Schema::Map(ref inner) => self.resolve_map(inner, index),
+            Schema::Record { ref name, ref fields, .. } => self.resolve_record(fields, name.index),
+
+            Schema::Date => self.resolve_datetime(index),
+            Schema::Set => self.resolve_set(index),
+            Schema::LruSet(ref lru_limit) => self.resolve_lru_set(lru_limit.clone(), index),
         }
     }
 
@@ -333,87 +477,94 @@ impl Value {
             Value::Null => Ok(Value::Null),
             other => {
                 Err(SchemaResolutionError::new(format!("Null expected, got {:?}", other)).into())
-            },
+            }
         }
     }
 
-    fn resolve_boolean(self) -> Result<Self, Error> {
+    fn resolve_boolean(self, index: bool) -> Result<Self, Error> {
         match self {
-            Value::Boolean(b) => Ok(Value::Boolean(b)),
+            Value::Boolean(b, _) => Ok(Value::Boolean(b, Some(ValueSetting { index }))),
             other => {
                 Err(SchemaResolutionError::new(format!("Boolean expected, got {:?}", other)).into())
-            },
+            }
         }
     }
 
-    fn resolve_int(self) -> Result<Self, Error> {
+    fn resolve_int(self, index: bool) -> Result<Self, Error> {
         match self {
-            Value::Int(n) => Ok(Value::Int(n)),
-            Value::Long(n) => Ok(Value::Int(n as i32)),
+            Value::Int(n, _) => Ok(Value::Int(n, Some(ValueSetting { index }))),
+            Value::Long(n, _) => Ok(Value::Int(n as i32, Some(ValueSetting { index }))),
             other => {
                 Err(SchemaResolutionError::new(format!("Int expected, got {:?}", other)).into())
-            },
+            }
         }
     }
 
-    fn resolve_long(self) -> Result<Self, Error> {
+    fn resolve_long(self, index: bool) -> Result<Self, Error> {
         match self {
-            Value::Int(n) => Ok(Value::Long(i64::from(n))),
-            Value::Long(n) => Ok(Value::Long(n)),
+            Value::Int(n, _) => Ok(Value::Long(i64::from(n), Some(ValueSetting { index }))),
+            Value::Long(n, _) => Ok(Value::Long(n, Some(ValueSetting { index }))),
             other => {
                 Err(SchemaResolutionError::new(format!("Long expected, got {:?}", other)).into())
-            },
+            }
         }
     }
 
-    fn resolve_float(self) -> Result<Self, Error> {
+    fn resolve_float(self, index: bool) -> Result<Self, Error> {
         match self {
-            Value::Int(n) => Ok(Value::Float(n as f32)),
-            Value::Long(n) => Ok(Value::Float(n as f32)),
-            Value::Float(x) => Ok(Value::Float(x)),
-            Value::Double(x) => Ok(Value::Float(x as f32)),
+            Value::Int(n, _) => Ok(Value::Float(n as f32, Some(ValueSetting { index }))),
+            Value::Long(n, _) => Ok(Value::Float(n as f32, Some(ValueSetting { index }))),
+            Value::Float(x, _) => Ok(Value::Float(x, Some(ValueSetting { index }))),
+            Value::Double(x, _) => Ok(Value::Float(x as f32, Some(ValueSetting { index }))),
             other => {
                 Err(SchemaResolutionError::new(format!("Float expected, got {:?}", other)).into())
-            },
+            }
         }
     }
 
-    fn resolve_double(self) -> Result<Self, Error> {
+    fn resolve_double(self, index: bool) -> Result<Self, Error> {
         match self {
-            Value::Int(n) => Ok(Value::Double(f64::from(n))),
-            Value::Long(n) => Ok(Value::Double(n as f64)),
-            Value::Float(x) => Ok(Value::Double(f64::from(x))),
-            Value::Double(x) => Ok(Value::Double(x)),
+            Value::Int(n, _) => Ok(Value::Double(f64::from(n), Some(ValueSetting { index }))),
+            Value::Long(n, _) => Ok(Value::Double(n as f64, Some(ValueSetting { index }))),
+            Value::Float(x, _) => Ok(Value::Double(f64::from(x), Some(ValueSetting { index }))),
+            Value::Double(x, _) => Ok(Value::Double(x, Some(ValueSetting { index }))),
             other => {
                 Err(SchemaResolutionError::new(format!("Double expected, got {:?}", other)).into())
-            },
+            }
         }
     }
 
-    fn resolve_bytes(self) -> Result<Self, Error> {
+    fn resolve_bytes(self, index: bool) -> Result<Self, Error> {
         match self {
-            Value::Bytes(bytes) => Ok(Value::Bytes(bytes)),
-            Value::String(s) => Ok(Value::Bytes(s.into_bytes())),
+            Value::Bytes(bytes, _) => Ok(Value::Bytes(bytes, Some(ValueSetting { index }))),
+            Value::String(s, _) => Ok(Value::Bytes(s.into_bytes(), Some(ValueSetting { index }))),
+            Value::Array(items, _) => Ok(Value::Bytes(
+                items
+                    .into_iter()
+                    .map(Value::try_u8)
+                    .collect::<Result<Vec<_>, _>>()?,
+                Some(ValueSetting { index }),
+            )),
             other => {
                 Err(SchemaResolutionError::new(format!("Bytes expected, got {:?}", other)).into())
-            },
+            }
         }
     }
 
-    fn resolve_string(self) -> Result<Self, Error> {
+    fn resolve_string(self, index: bool) -> Result<Self, Error> {
         match self {
-            Value::String(s) => Ok(Value::String(s)),
-            Value::Bytes(bytes) => Ok(Value::String(String::from_utf8(bytes)?)),
+            Value::String(s, _) => Ok(Value::String(s, Some(ValueSetting { index }))),
+            Value::Bytes(bytes, _) => Ok(Value::String(String::from_utf8(bytes)?, Some(ValueSetting { index }))),
             other => {
                 Err(SchemaResolutionError::new(format!("String expected, got {:?}", other)).into())
-            },
+            }
         }
     }
 
-    fn resolve_fixed(self, size: usize) -> Result<Self, Error> {
+    fn resolve_fixed(self, size: usize, index: bool) -> Result<Self, Error> {
         match self {
-            Value::Fixed(n, bytes) => if n == size {
-                Ok(Value::Fixed(n, bytes))
+            Value::Fixed(n, bytes, _) => if n == size {
+                Ok(Value::Fixed(n, bytes, Some(ValueSetting { index })))
             } else {
                 Err(SchemaResolutionError::new(format!(
                     "Fixed size mismatch, {} expected, got {}",
@@ -422,14 +573,14 @@ impl Value {
             },
             other => {
                 Err(SchemaResolutionError::new(format!("String expected, got {:?}", other)).into())
-            },
+            }
         }
     }
 
-    fn resolve_enum(self, symbols: &[String]) -> Result<Self, Error> {
+    fn resolve_enum(self, symbols: &[String], index: bool) -> Result<Self, Error> {
         let validate_symbol = |symbol: String, symbols: &[String]| {
-            if let Some(index) = symbols.iter().position(|ref item| item == &&symbol) {
-                Ok(Value::Enum(index as i32, symbol))
+            if let Some(i) = symbols.iter().position(|ref item| item == &&symbol) {
+                Ok(Value::Enum(i as i32, symbol, Some(ValueSetting { index })))
             } else {
                 Err(SchemaResolutionError::new(format!(
                     "Enum default {} is not among allowed symbols {:?}",
@@ -439,7 +590,7 @@ impl Value {
         };
 
         match self {
-            Value::Enum(i, s) => if i > 0 && i < symbols.len() as i32 {
+            Value::Enum(i, s, _) => if i >= 0 && i < symbols.len() as i32 {
                 validate_symbol(s, symbols)
             } else {
                 Err(SchemaResolutionError::new(format!(
@@ -448,7 +599,7 @@ impl Value {
                     symbols.len() as i32
                 )).into())
             },
-            Value::String(s) => validate_symbol(s, symbols),
+            Value::String(s, _) => validate_symbol(s, symbols),
             other => Err(SchemaResolutionError::new(format!(
                 "Enum({:?}) expected, got {:?}",
                 symbols, other
@@ -456,10 +607,10 @@ impl Value {
         }
     }
 
-    fn resolve_union(self, schema: &UnionSchema) -> Result<Self, Error> {
+    fn resolve_union(self, schema: &UnionSchema, index: bool) -> Result<Self, Error> {
         let v = match self {
             // Both are unions case.
-            Value::Union(v) => *v,
+            Value::Union(v, _) => *v,
             // Reader is a union, but writer is not.
             v => v,
         };
@@ -467,16 +618,17 @@ impl Value {
         let (_, inner) = schema
             .find_schema(&v)
             .ok_or_else(|| SchemaResolutionError::new("Could not find matching type in union"))?;
-        v.resolve(inner)
+        v.resolve_internal(inner, index)
     }
 
-    fn resolve_array(self, schema: &Schema) -> Result<Self, Error> {
+    fn resolve_array(self, schema: &Schema, index: bool) -> Result<Self, Error> {
         match self {
-            Value::Array(items) => Ok(Value::Array(
+            Value::Array(items, _) => Ok(Value::Array(
                 items
                     .into_iter()
-                    .map(|item| item.resolve(schema))
+                    .map(|item| item.resolve_internal(schema, index))
                     .collect::<Result<Vec<_>, _>>()?,
+                Some(ValueSetting { index }),
             )),
             other => Err(SchemaResolutionError::new(format!(
                 "Array({:?}) expected, got {:?}",
@@ -485,13 +637,14 @@ impl Value {
         }
     }
 
-    fn resolve_map(self, schema: &Schema) -> Result<Self, Error> {
+    fn resolve_map(self, schema: &Schema, index: bool) -> Result<Self, Error> {
         match self {
-            Value::Map(items) => Ok(Value::Map(
+            Value::Map(items, _) => Ok(Value::Map(
                 items
                     .into_iter()
-                    .map(|(key, value)| value.resolve(schema).map(|value| (key, value)))
+                    .map(|(key, value)| value.resolve_internal(schema, index).map(|value| (key, value)))
                     .collect::<Result<HashMap<_, _>, _>>()?,
+                Some(ValueSetting { index }),
             )),
             other => Err(SchemaResolutionError::new(format!(
                 "Map({:?}) expected, got {:?}",
@@ -500,10 +653,10 @@ impl Value {
         }
     }
 
-    fn resolve_record(self, fields: &[RecordField], allow_partial: bool) -> Result<Self, Error> {
+    fn resolve_record(self, fields: &[RecordField], index: bool) -> Result<Self, Error> {
         let mut items = match self {
-            Value::Map(items) => Ok(items),
-            Value::Record(fields) => Ok(fields.into_iter().collect::<HashMap<_, _>>()),
+            Value::Map(items, _) => Ok(items),
+            Value::Record(fields, _) => Ok(fields.into_iter().collect::<HashMap<_, _>>()),
             other => Err(SchemaResolutionError::new(format!(
                 "Record({:?}) expected, got {:?}",
                 fields, other
@@ -518,64 +671,202 @@ impl Value {
                     None => match field.default {
                         Some(ref value) => match field.schema {
                             Schema::Enum { ref symbols, .. } => {
-                                value.clone().avro().resolve_enum(symbols)?
-                            },
+                                value.clone().avro().resolve_enum(symbols, field.index)?
+                            }
                             _ => value.clone().avro(),
                         },
                         _ => {
-                            if allow_partial {
-                                Value::Null
-                            } else {
-                                return Err(SchemaResolutionError::new(format!(
-                                    "missing field {} in record",
-                                    field.name
-                                )).into())
-                            }
-                        },
+                            return Err(SchemaResolutionError::new(format!(
+                                "missing field {} in record",
+                                field.name
+                            )).into());
+                        }
                     },
                 };
 
                 // for partial fields put value as Value::Null, which is handled properly at encode and decode time
-                if allow_partial && value == Value::Null && field.schema != Schema::Null {
-                    Ok((field.name.clone(), value))
-                } else {
-                    value
-                        .resolve(&field.schema)
-                        .map(|value| (field.name.clone(), value))
-                }
+                value
+                    .resolve_internal(&field.schema, field.index)
+                    .map(|value| (field.name.clone(), value))
             }).collect::<Result<Vec<_>, _>>()?;
 
-        Ok(Value::Record(new_fields))
+        Ok(Value::Record(new_fields, Some(ValueSetting { index })))
+    }
+
+    // u64 to u64 is default
+    // string to u64 is through well defined patterns
+    fn resolve_datetime(self, index: bool) -> Result<Self, Error> {
+        match self {
+            Value::Long(val, _) => Ok(Value::Date(val, Some(ValueSetting { index }))),
+            Value::Date(val, _) => Ok(Value::Date(val, Some(ValueSetting { index }))),
+            Value::String(val, _) => {
+                let dt = chrono::DateTime::parse_from_rfc3339(&val);
+                if !dt.is_err() {
+                    let epoch = dt.unwrap().timestamp_millis();
+                    return Ok(Value::Date(epoch, Some(ValueSetting { index })));
+
+                }
+
+                let dt = chrono::DateTime::parse_from_rfc2822(&val);
+                if !dt.is_err() {
+                    let epoch = dt.unwrap().timestamp_millis();
+                    return Ok(Value::Date(epoch, Some(ValueSetting { index })));
+                }
+
+                return Err(failure::err_msg(format!("Couldn't resolve string value {} to date", val)))
+            },
+            other => Err(SchemaResolutionError::new(format!("Date expected, got {:?}", other)).into()),
+        }
+    }
+
+    fn resolve_set(self, index: bool) -> Result<Self, Error> {
+        match self {
+            Value::Array(items, _) => Ok(Value::Set(
+                items
+                    .into_iter()
+                    .map(|item| {
+                        match item {
+                            Value::String(s, _) => Ok(s),
+                            other => Err(SchemaResolutionError::new(format!(
+                                "String expected, got {:?}", other
+                            )).into())
+                        }
+                    })
+                    .collect::<Result<HashSet<_>, SchemaResolutionError>>()?,
+                Some(ValueSetting { index }),
+            )),
+            Value::Set(items, _) => Ok(Value::Set(items, Some(ValueSetting { index }))),
+            other => Err(SchemaResolutionError::new(format!(
+                "Set expected, got {:?}", other
+            )).into()),
+        }
+    }
+
+    fn resolve_lru_value(self) -> Result<LruValue, Error> {
+        let resolved = self.resolve_internal(&LRU_VALUE_SCHEMA, false)?;
+
+        match resolved {
+            Value::Record(fields, _) => {
+                let mut access_time = 0;
+                let mut count = 0;
+
+                for (field, value) in fields {
+                    match (field.as_str(), value) {
+                        (ACCESS_TIME, Value::Long(v, _)) => {
+                            access_time = v;
+                        }
+                        (COUNT, Value::Long(v, _)) => {
+                            count = v;
+                        }
+                        (_, _) => {}
+                    }
+                }
+
+                Ok(LruValue {
+                    access_time,
+                    count,
+                })
+            }
+            other => {
+                Err(SchemaResolutionError::new(format!("Expected LruValue record, got {:?}", other)).into())
+            }
+        }
+    }
+
+    fn resolve_lru_set(self, lru_limit: LruLimit, index: bool) -> Result<Self, Error> {
+        match self {
+            Value::Map(items, _) => Ok(Value::LruSet(
+                items
+                    .into_iter()
+                    .map(|(key, value)| value.resolve_lru_value().map(|value| (key, value)))
+                    .collect::<Result<HashMap<_, _>, _>>()?,
+                lru_limit,
+                Some(ValueSetting { index }),
+            )),
+            Value::LruSet(items, _, _) => Ok(Value::LruSet(items, lru_limit, Some(ValueSetting { index }))),
+            other => Err(SchemaResolutionError::new(format!(
+                "LruSet expected, got {:?}", other
+            )).into()),
+        }
+    }
+
+    pub fn json(&self) -> JsonValue {
+        match self {
+            Value::Null => JsonValue::Null,
+            Value::Boolean(b, _) => JsonValue::Bool(b.to_owned()),
+            Value::Int(n, _) => json!(n),
+            Value::Long(n, _) => json!(n),
+            Value::Float(n, _) => json!(n),
+            Value::Double(n, _) => json!(n),
+            Value::Bytes(b, _) => json!(b),
+            Value::String(s, _) => JsonValue::String(s.to_owned()),
+            Value::Fixed(_, _, _) => JsonValue::Null,
+            Value::Enum(_, _, _) => JsonValue::Null,
+            Value::Union(_, _) => JsonValue::Null,
+            Value::Array(items, _) => {
+                JsonValue::Array(items.into_iter().map(|item| item.json()).collect::<_>())
+            }
+            Value::Map(items, _) => {
+                JsonValue::Object(items.into_iter().map(|(key, value)| (key.clone(), value.json())).collect::<_>())
+            }
+            Value::Record(items, _) => {
+                JsonValue::Object(items.iter().map(|(key, value)| (key.clone(), value.json())).collect::<_>())
+            }
+
+            Value::Set(items, _) => {
+                JsonValue::Array(items.into_iter().map(|item| JsonValue::String(item.to_owned())).collect::<_>())
+            }
+            Value::LruSet(items, _, _) => {
+                JsonValue::Object(items.into_iter().map(|(key, value)| (key.clone(), value.json())).collect::<_>())
+            }
+            Value::Date(t, _) => json!(t)
+        }
+    }
+
+    fn try_u8(self) -> Result<u8, Error> {
+        let int = self.resolve(&Schema::Int)?;
+        if let Value::Int(n, None) = int {
+            if n >= 0 && n <= i32::from(u8::MAX) {
+                return Ok(n as u8);
+            }
+        }
+
+        Err(
+            SchemaResolutionError::new(
+                format!("Unable to convert to u8, got {:?}", int)
+            ).into()
+        )
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::schema::{Name, RecordField, RecordFieldOrder, UnionSchema};
+
+    use super::*;
 
     #[test]
     fn validate() {
         let value_schema_valid = vec![
-            (Value::Int(42), Schema::Int, true),
-            (Value::Int(42), Schema::Boolean, false),
+            (Value::Int(42, None), Schema::Int, true),
+            (Value::Int(42, None), Schema::Boolean, false),
             (
-                Value::Union(Box::new(Value::Null)),
+                Value::Union(Box::new(Value::Null), None),
                 Schema::Union(UnionSchema::new(vec![Schema::Null, Schema::Int]).unwrap()),
                 true,
             ),
             (
-                Value::Union(Box::new(Value::Int(42))),
+                Value::Union(Box::new(Value::Int(42, None)), None),
                 Schema::Union(UnionSchema::new(vec![Schema::Null, Schema::Int]).unwrap()),
                 true,
             ),
             (
-                Value::Union(Box::new(Value::Null)),
+                Value::Union(Box::new(Value::Null), None),
                 Schema::Union(UnionSchema::new(vec![Schema::Double, Schema::Int]).unwrap()),
                 false,
             ),
             (
-                Value::Union(Box::new(Value::Int(42))),
+                Value::Union(Box::new(Value::Int(42, None)), None),
                 Schema::Union(
                     UnionSchema::new(vec![
                         Schema::Null,
@@ -587,16 +878,16 @@ mod tests {
                 true,
             ),
             (
-                Value::Array(vec![Value::Long(42i64)]),
+                Value::Array(vec![Value::Long(42i64, None)], None),
                 Schema::Array(Box::new(Schema::Long)),
                 true,
             ),
             (
-                Value::Array(vec![Value::Boolean(true)]),
+                Value::Array(vec![Value::Boolean(true, None)], None),
                 Schema::Array(Box::new(Schema::Long)),
                 false,
             ),
-            (Value::Record(vec![]), Schema::Null, false),
+            (Value::Record(vec![], None), Schema::Null, false),
         ];
 
         for (value, schema, valid) in value_schema_valid.into_iter() {
@@ -611,8 +902,8 @@ mod tests {
             name: Name::new("some_fixed"),
         };
 
-        assert!(Value::Fixed(4, vec![0, 0, 0, 0]).validate(&schema));
-        assert!(!Value::Fixed(5, vec![0, 0, 0, 0, 0]).validate(&schema));
+        assert!(Value::Fixed(4, vec![0, 0, 0, 0], None).validate(&schema));
+        assert!(!Value::Fixed(5, vec![0, 0, 0, 0, 0], None).validate(&schema));
     }
 
     #[test]
@@ -628,11 +919,11 @@ mod tests {
             ],
         };
 
-        assert!(Value::Enum(0, "spades".to_string()).validate(&schema));
-        assert!(Value::String("spades".to_string()).validate(&schema));
+        assert!(Value::Enum(0, "spades".to_string(), None).validate(&schema));
+        assert!(Value::String("spades".to_string(), None).validate(&schema));
 
-        assert!(!Value::Enum(1, "spades".to_string()).validate(&schema));
-        assert!(!Value::String("lorem".to_string()).validate(&schema));
+        assert!(!Value::Enum(1, "spades".to_string(), None).validate(&schema));
+        assert!(!Value::String("lorem".to_string(), None).validate(&schema));
 
         let other_schema = Schema::Enum {
             name: Name::new("some_other_enum"),
@@ -645,7 +936,7 @@ mod tests {
             ],
         };
 
-        assert!(!Value::Enum(0, "spades".to_string()).validate(&other_schema));
+        assert!(!Value::Enum(0, "spades".to_string(), None).validate(&other_schema));
     }
 
     #[test]
@@ -668,6 +959,7 @@ mod tests {
                     schema: Schema::Long,
                     order: RecordFieldOrder::Ascending,
                     position: 0,
+                    index: false,
                 },
                 RecordField {
                     name: "b".to_string(),
@@ -676,46 +968,61 @@ mod tests {
                     schema: Schema::String,
                     order: RecordFieldOrder::Ascending,
                     position: 1,
+                    index: false,
                 },
             ],
             lookup: HashMap::new(),
-            allow_partial: false,
         };
 
         assert!(
             Value::Record(vec![
-                ("a".to_string(), Value::Long(42i64)),
-                ("b".to_string(), Value::String("foo".to_string())),
-            ]).validate(&schema)
+                ("a".to_string(), Value::Long(42i64, None)),
+                ("b".to_string(), Value::String("foo".to_string(), None)),
+            ], None).validate(&schema)
         );
 
         assert!(
             !Value::Record(vec![
-                ("b".to_string(), Value::String("foo".to_string())),
-                ("a".to_string(), Value::Long(42i64)),
-            ]).validate(&schema)
+                ("b".to_string(), Value::String("foo".to_string(), None)),
+                ("a".to_string(), Value::Long(42i64, None)),
+            ], None).validate(&schema)
         );
 
         assert!(
             !Value::Record(vec![
-                ("a".to_string(), Value::Boolean(false)),
-                ("b".to_string(), Value::String("foo".to_string())),
-            ]).validate(&schema)
+                ("a".to_string(), Value::Boolean(false, None)),
+                ("b".to_string(), Value::String("foo".to_string(), None)),
+            ], None).validate(&schema)
         );
 
         assert!(
             !Value::Record(vec![
-                ("a".to_string(), Value::Long(42i64)),
-                ("c".to_string(), Value::String("foo".to_string())),
-            ]).validate(&schema)
+                ("a".to_string(), Value::Long(42i64, None)),
+                ("c".to_string(), Value::String("foo".to_string(), None)),
+            ], None).validate(&schema)
         );
 
         assert!(
             !Value::Record(vec![
-                ("a".to_string(), Value::Long(42i64)),
-                ("b".to_string(), Value::String("foo".to_string())),
+                ("a".to_string(), Value::Long(42i64, None)),
+                ("b".to_string(), Value::String("foo".to_string(), None)),
                 ("c".to_string(), Value::Null),
-            ]).validate(&schema)
+            ], None).validate(&schema)
         );
+    }
+
+    #[test]
+    fn resolve_bytes_ok() {
+        let value = Value::Array(vec![Value::Int(0, None), Value::Int(42, None)], None);
+        assert_eq!(
+            value.resolve(&Schema::Bytes).unwrap(),
+            Value::Bytes(vec![0u8, 42u8], None)
+        );
+    }
+
+    #[test]
+    fn resolve_bytes_failure() {
+        let value = Value::Array(vec![Value::Int(2000, None), Value::Int(-42, None)], None);
+        assert!(value.resolve(&Schema::Bytes).is_err());
     }
 }

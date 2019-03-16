@@ -54,12 +54,12 @@ impl<R: Read> Block<R> {
             return Err(DecodeError::new("wrong magic in header").into())
         }
 
-        if let Value::Map(meta) = decode(&meta_schema, &mut self.reader)? {
+        if let Value::Map(meta, _) = decode(&meta_schema, &mut self.reader)? {
             // TODO: surface original parse schema errors instead of coalescing them here
             let schema = meta
                 .get("avro.schema")
                 .and_then(|bytes| {
-                    if let Value::Bytes(ref bytes) = *bytes {
+                    if let Value::Bytes(ref bytes, _) = *bytes {
                         from_slice(bytes.as_ref()).ok()
                     } else {
                         None
@@ -75,7 +75,7 @@ impl<R: Read> Block<R> {
             if let Some(codec) = meta
                 .get("avro.codec")
                 .and_then(|codec| {
-                    if let Value::Bytes(ref bytes) = *codec {
+                    if let Value::Bytes(ref bytes, _) = *codec {
                         from_utf8(bytes.as_ref()).ok()
                     } else {
                         None
@@ -344,7 +344,7 @@ mod tests {
 
         assert_eq!(
             from_avro_datum(&schema, &mut encoded, None).unwrap(),
-            Value::Union(Box::new(Value::Long(0)))
+            Value::Union(Box::new(Value::Long(0, None)), None)
         );
     }
 

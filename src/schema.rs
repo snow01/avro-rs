@@ -5,11 +5,17 @@ use std::fmt;
 
 use digest::Digest;
 use failure::Error;
-use serde::ser::{Serialize, SerializeMap, SerializeSeq, Serializer};
-use serde_json::{self, Map, Value};
+use regex::Regex;
+use serde::Deserialize;
+use serde::ser::{Serialize, SerializeMap, Serializer, SerializeSeq};
+use serde_json::{self, Map, Value as JsonValue};
 
-use crate::types;
+use crate::types::Value as AvroValue;
 use crate::util::MapHelper;
+
+lazy_static! {
+    static ref LRU_LIMIT_REGEX:Regex = Regex::new("(?P<value>[[:digit:]]+)[[:space:]]*(?P<type>days|hour|minute|second)?$").unwrap();
+}
 
 /// Describes errors happened while parsing Avro schemas.
 #[derive(Fail, Debug)]
@@ -18,8 +24,8 @@ pub struct ParseSchemaError(String);
 
 impl ParseSchemaError {
     pub fn new<S>(msg: S) -> ParseSchemaError
-    where
-        S: Into<String>,
+        where
+            S: Into<String>,
     {
         ParseSchemaError(msg.into())
     }
@@ -87,7 +93,6 @@ pub enum Schema {
         doc: Documentation,
         fields: Vec<RecordField>,
         lookup: HashMap<String, usize>,
-        allow_partial: bool,
     },
     /// An `enum` Avro schema.
     Enum {
@@ -97,6 +102,35 @@ pub enum Schema {
     },
     /// A `fixed` Avro schema.
     Fixed { name: Name, size: usize },
+
+    Date,
+
+    Set,
+
+    // capture limit and limit by = supported values: days, hour, minute, count
+    LruSet(LruLimit),
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum LruLimit {
+    Days(u16),
+    Hour(u16),
+    Minute(u16),
+    Count(u16),
+}
+
+impl Serialize for LruLimit {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: Serializer,
+    {
+        match *self {
+            LruLimit::Days(limit) => serializer.serialize_str(&format!("{} days", limit)),
+            LruLimit::Hour(limit) => serializer.serialize_str(&format!("{} hour", limit)),
+            LruLimit::Minute(limit) => serializer.serialize_str(&format!("{} minute", limit)),
+            LruLimit::Count(limit) => serializer.serialize_str(&format!("{}", limit)),
+        }
+    }
 }
 
 /// This type is used to simplify enum variant comparison between `Schema` and `types::Value`.
@@ -123,6 +157,9 @@ pub(crate) enum SchemaKind {
     Record,
     Enum,
     Fixed,
+    Date,
+    Set,
+    LruSet,
 }
 
 impl<'a> From<&'a Schema> for SchemaKind {
@@ -144,28 +181,34 @@ impl<'a> From<&'a Schema> for SchemaKind {
             Schema::Record { .. } => SchemaKind::Record,
             Schema::Enum { .. } => SchemaKind::Enum,
             Schema::Fixed { .. } => SchemaKind::Fixed,
+            Schema::Date => SchemaKind::Date,
+            Schema::Set => SchemaKind::Set,
+            Schema::LruSet(_) => SchemaKind::LruSet,
         }
     }
 }
 
-impl<'a> From<&'a types::Value> for SchemaKind {
+impl<'a> From<&'a AvroValue> for SchemaKind {
     #[inline(always)]
-    fn from(value: &'a types::Value) -> SchemaKind {
+    fn from(value: &'a AvroValue) -> SchemaKind {
         match value {
-            types::Value::Null => SchemaKind::Null,
-            types::Value::Boolean(_) => SchemaKind::Boolean,
-            types::Value::Int(_) => SchemaKind::Int,
-            types::Value::Long(_) => SchemaKind::Long,
-            types::Value::Float(_) => SchemaKind::Float,
-            types::Value::Double(_) => SchemaKind::Double,
-            types::Value::Bytes(_) => SchemaKind::Bytes,
-            types::Value::String(_) => SchemaKind::String,
-            types::Value::Array(_) => SchemaKind::Array,
-            types::Value::Map(_) => SchemaKind::Map,
-            types::Value::Union(_) => SchemaKind::Union,
-            types::Value::Record(_) => SchemaKind::Record,
-            types::Value::Enum(_, _) => SchemaKind::Enum,
-            types::Value::Fixed(_, _) => SchemaKind::Fixed,
+            AvroValue::Null => SchemaKind::Null,
+            AvroValue::Boolean(_, _) => SchemaKind::Boolean,
+            AvroValue::Int(_, _) => SchemaKind::Int,
+            AvroValue::Long(_, _) => SchemaKind::Long,
+            AvroValue::Float(_, _) => SchemaKind::Float,
+            AvroValue::Double(_, _) => SchemaKind::Double,
+            AvroValue::Bytes(_, _) => SchemaKind::Bytes,
+            AvroValue::String(_, _) => SchemaKind::String,
+            AvroValue::Array(_, _) => SchemaKind::Array,
+            AvroValue::Map(_, _) => SchemaKind::Map,
+            AvroValue::Union(_, _) => SchemaKind::Union,
+            AvroValue::Record(_, _) => SchemaKind::Record,
+            AvroValue::Enum(_, _, _) => SchemaKind::Enum,
+            AvroValue::Fixed(_, _, _) => SchemaKind::Fixed,
+            AvroValue::Date(_, _) => SchemaKind::Date,
+            AvroValue::Set(_, _) => SchemaKind::Set,
+            AvroValue::LruSet(_, _, _) => SchemaKind::LruSet,
         }
     }
 }
@@ -185,6 +228,8 @@ pub struct Name {
     pub name: String,
     pub namespace: Option<String>,
     pub aliases: Option<Vec<String>>,
+
+    pub index: bool,
 }
 
 /// Represents documentation for complex Avro schemas.
@@ -198,11 +243,12 @@ impl Name {
             name: name.to_owned(),
             namespace: None,
             aliases: None,
+            index: false,
         }
     }
 
     /// Parse a `serde_json::Value` into a `Name`.
-    fn parse(complex: &Map<String, Value>) -> Result<Self, Error> {
+    fn parse(complex: &Map<String, JsonValue>) -> Result<Self, Error> {
         let name = complex
             .name()
             .ok_or_else(|| ParseSchemaError::new("No `name` field"))?;
@@ -224,6 +270,7 @@ impl Name {
             name,
             namespace,
             aliases,
+            index: complex.index(),
         })
     }
 
@@ -259,7 +306,7 @@ pub struct RecordField {
     /// Default value of the field.
     /// This value will be used when reading Avro datum if schema resolution
     /// is enabled.
-    pub default: Option<Value>,
+    pub default: Option<JsonValue>,
     /// Schema of the field.
     pub schema: Schema,
     /// Order of the field.
@@ -268,6 +315,8 @@ pub struct RecordField {
     pub order: RecordFieldOrder,
     /// Position of the field in the list of `field` of its parent `Schema`
     pub position: usize,
+
+    pub index: bool,
 }
 
 /// Represents any valid order for a `field` in a `record` Avro schema.
@@ -280,7 +329,7 @@ pub enum RecordFieldOrder {
 
 impl RecordField {
     /// Parse a `serde_json::Value` into a `RecordField`.
-    fn parse(field: &Map<String, Value>, position: usize) -> Result<Self, Error> {
+    fn parse(field: &Map<String, JsonValue>, position: usize) -> Result<Self, Error> {
         let name = field
             .name()
             .ok_or_else(|| ParseSchemaError::new("No `name` in record field"))?;
@@ -310,6 +359,7 @@ impl RecordField {
             schema,
             order,
             position,
+            index: field.index(),
         })
     }
 }
@@ -383,11 +433,11 @@ impl Schema {
 
     /// Create a `Schema` from a `serde_json::Value` representing a JSON Avro
     /// schema.
-    pub fn parse(value: &Value) -> Result<Self, Error> {
+    pub fn parse(value: &JsonValue) -> Result<Self, Error> {
         match *value {
-            Value::String(ref t) => Schema::parse_primitive(t.as_str()),
-            Value::Object(ref data) => Schema::parse_complex(data),
-            Value::Array(ref data) => Schema::parse_union(data),
+            JsonValue::String(ref t) => Schema::parse_primitive(t.as_str()),
+            JsonValue::Object(ref data) => Schema::parse_complex(data),
+            JsonValue::Array(ref data) => Schema::parse_union(data),
             _ => Err(ParseSchemaError::new("Must be a JSON string, object or array").into()),
         }
     }
@@ -427,6 +477,8 @@ impl Schema {
             "float" => Ok(Schema::Float),
             "bytes" => Ok(Schema::Bytes),
             "string" => Ok(Schema::String),
+            "date" => Ok(Schema::Date),
+            "set" => Ok(Schema::Set),
             other => Err(ParseSchemaError::new(format!("Unknown type: {}", other)).into()),
         }
     }
@@ -436,17 +488,18 @@ impl Schema {
     ///
     /// Avro supports "recursive" definition of types.
     /// e.g: {"type": {"type": "string"}}
-    fn parse_complex(complex: &Map<String, Value>) -> Result<Self, Error> {
+    fn parse_complex(complex: &Map<String, JsonValue>) -> Result<Self, Error> {
         match complex.get("type") {
-            Some(&Value::String(ref t)) => match t.as_str() {
+            Some(&JsonValue::String(ref t)) => match t.as_str() {
                 "record" => Schema::parse_record(complex),
                 "enum" => Schema::parse_enum(complex),
                 "array" => Schema::parse_array(complex),
                 "map" => Schema::parse_map(complex),
                 "fixed" => Schema::parse_fixed(complex),
+                "lru_set" => Schema::parse_lru_set(complex),
                 other => Schema::parse_primitive(other),
             },
-            Some(&Value::Object(ref data)) => match data.get("type") {
+            Some(&JsonValue::Object(ref data)) => match data.get("type") {
                 Some(ref value) => Schema::parse(value),
                 None => Err(
                     ParseSchemaError::new(format!("Unknown complex type: {:?}", complex)).into(),
@@ -458,7 +511,7 @@ impl Schema {
 
     /// Parse a `serde_json::Value` representing a Avro record type into a
     /// `Schema`.
-    fn parse_record(complex: &Map<String, Value>) -> Result<Self, Error> {
+    fn parse_record(complex: &Map<String, JsonValue>) -> Result<Self, Error> {
         let name = Name::parse(complex)?;
 
         let mut lookup = HashMap::new();
@@ -485,13 +538,12 @@ impl Schema {
             doc: complex.doc(),
             fields,
             lookup,
-            allow_partial: complex.allow_partial(),
         })
     }
 
     /// Parse a `serde_json::Value` representing a Avro enum type into a
     /// `Schema`.
-    fn parse_enum(complex: &Map<String, Value>) -> Result<Self, Error> {
+    fn parse_enum(complex: &Map<String, JsonValue>) -> Result<Self, Error> {
         let name = Name::parse(complex)?;
 
         let symbols = complex
@@ -515,7 +567,7 @@ impl Schema {
 
     /// Parse a `serde_json::Value` representing a Avro array type into a
     /// `Schema`.
-    fn parse_array(complex: &Map<String, Value>) -> Result<Self, Error> {
+    fn parse_array(complex: &Map<String, JsonValue>) -> Result<Self, Error> {
         complex
             .get("items")
             .ok_or_else(|| ParseSchemaError::new("No `items` in array").into())
@@ -525,7 +577,7 @@ impl Schema {
 
     /// Parse a `serde_json::Value` representing a Avro map type into a
     /// `Schema`.
-    fn parse_map(complex: &Map<String, Value>) -> Result<Self, Error> {
+    fn parse_map(complex: &Map<String, JsonValue>) -> Result<Self, Error> {
         complex
             .get("values")
             .ok_or_else(|| ParseSchemaError::new("No `values` in map").into())
@@ -535,7 +587,7 @@ impl Schema {
 
     /// Parse a `serde_json::Value` representing a Avro union type into a
     /// `Schema`.
-    fn parse_union(items: &[Value]) -> Result<Self, Error> {
+    fn parse_union(items: &[JsonValue]) -> Result<Self, Error> {
         items
             .iter()
             .map(Schema::parse)
@@ -545,7 +597,7 @@ impl Schema {
 
     /// Parse a `serde_json::Value` representing a Avro fixed type into a
     /// `Schema`.
-    fn parse_fixed(complex: &Map<String, Value>) -> Result<Self, Error> {
+    fn parse_fixed(complex: &Map<String, JsonValue>) -> Result<Self, Error> {
         let name = Name::parse(complex)?;
 
         let size = complex
@@ -558,12 +610,62 @@ impl Schema {
             size: size as usize,
         })
     }
+
+    /// Parse a `serde_json::Value` representing a Avro array type into a
+    /// `Schema`.
+    fn parse_lru_set(complex: &Map<String, JsonValue>) -> Result<Self, Error> {
+        complex
+            .get("limit")
+            .ok_or_else(|| ParseSchemaError::new("No `limit` specified for lru_set").into())
+            .and_then(|limit| Schema::parse_lru_limit(limit))
+            .map(|lru_limit| Schema::LruSet(lru_limit))
+    }
+
+    fn parse_lru_limit(v: &JsonValue) -> Result<LruLimit, Error> {
+        v.as_str()
+            .ok_or_else(|| failure::err_msg(format!("Not a valid limit value for lru_set type: {}", v)))
+            .map(|s| LRU_LIMIT_REGEX.captures(s))
+            .and_then(|r| {
+                r
+                    .ok_or_else(|| failure::err_msg(format!("Not a valid limit value for lru_set type: {}", v)))
+                    .and_then(|caps| {
+                        let value = caps.name("value").unwrap().as_str();
+                        let value = value.parse::<u16>()?;
+
+                        caps.name("type")
+                            .map_or(Ok(LruLimit::Count(value)), |r| {
+                                match r.as_str() {
+                                    "days" => Ok(LruLimit::Days(value)),
+                                    "hour" => Ok(LruLimit::Hour(value)),
+                                    "minute" => Ok(LruLimit::Minute(value)),
+                                    other => Err(failure::err_msg(format!("Not a valid limit value for lru_set type: {}", other))),
+                                }
+                            })
+                    })
+            })
+    }
+}
+
+impl<'de> Deserialize<'de> for Schema {
+    #[inline]
+    fn deserialize<D>(deserializer: D) -> Result<Schema, D::Error>
+        where
+            D: serde::Deserializer<'de>,
+    {
+        return JsonValue::deserialize(deserializer)
+            .and_then(|value| {
+                Schema::parse(&value)
+                    .map_err(|e| {
+                        serde::de::Error::custom(format!("Error in parsing Spec json ({}) ==> {}", value, e))
+                    })
+            });
+    }
 }
 
 impl Serialize for Schema {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
+        where
+            S: Serializer,
     {
         match *self {
             Schema::Null => serializer.serialize_str("null"),
@@ -579,13 +681,13 @@ impl Serialize for Schema {
                 map.serialize_entry("type", "array")?;
                 map.serialize_entry("items", &*inner.clone())?;
                 map.end()
-            },
+            }
             Schema::Map(ref inner) => {
                 let mut map = serializer.serialize_map(Some(2))?;
                 map.serialize_entry("type", "map")?;
                 map.serialize_entry("values", &*inner.clone())?;
                 map.end()
-            },
+            }
             Schema::Union(ref inner) => {
                 let variants = inner.variants();
                 let mut seq = serializer.serialize_seq(Some(variants.len()))?;
@@ -593,12 +695,11 @@ impl Serialize for Schema {
                     seq.serialize_element(v)?;
                 }
                 seq.end()
-            },
+            }
             Schema::Record {
                 ref name,
                 ref doc,
                 ref fields,
-                ref allow_partial,
                 ..
             } => {
                 let mut map = serializer.serialize_map(None)?;
@@ -615,12 +716,8 @@ impl Serialize for Schema {
                 }
                 map.serialize_entry("fields", fields)?;
 
-                if *allow_partial {
-                    map.serialize_entry("allow_partial", allow_partial)?;
-                }
-
                 map.end()
-            },
+            }
             Schema::Enum {
                 ref name,
                 ref symbols,
@@ -631,22 +728,34 @@ impl Serialize for Schema {
                 map.serialize_entry("name", &name.name)?;
                 map.serialize_entry("symbols", symbols)?;
                 map.end()
-            },
+            }
             Schema::Fixed { ref name, ref size } => {
                 let mut map = serializer.serialize_map(None)?;
                 map.serialize_entry("type", "fixed")?;
                 map.serialize_entry("name", &name.name)?;
                 map.serialize_entry("size", size)?;
                 map.end()
-            },
+            }
+            Schema::Set => serializer.serialize_str("set"),
+            Schema::Date => {
+                let mut map = serializer.serialize_map(None)?;
+                map.serialize_entry("type", "date")?;
+                map.end()
+            }
+            Schema::LruSet(ref limit) => {
+                let mut map = serializer.serialize_map(None)?;
+                map.serialize_entry("type", "lru_set")?;
+                map.serialize_entry("limit", limit)?;
+                map.end()
+            }
         }
     }
 }
 
 impl Serialize for RecordField {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
+        where
+            S: Serializer,
     {
         let mut map = serializer.serialize_map(None)?;
         map.serialize_entry("name", &self.name)?;
@@ -662,11 +771,11 @@ impl Serialize for RecordField {
 
 /// Parses a **valid** avro schema into the Parsing Canonical Form.
 /// https://avro.apache.org/docs/1.8.2/spec.html#Parsing+Canonical+Form+for+Schemas
-fn parsing_canonical_form(schema: &serde_json::Value) -> String {
+fn parsing_canonical_form(schema: &JsonValue) -> String {
     match schema {
-        serde_json::Value::Object(map) => pcf_map(map),
-        serde_json::Value::String(s) => pcf_string(s),
-        serde_json::Value::Array(v) => pcf_array(v),
+        JsonValue::Object(map) => pcf_map(map),
+        JsonValue::String(s) => pcf_string(s),
+        JsonValue::Array(v) => pcf_array(v),
         _ => unreachable!(),
     }
 }
@@ -680,13 +789,13 @@ fn pcf_map(schema: &Map<String, serde_json::Value>) -> String {
         if schema.len() == 1 && k == "type" {
             // Invariant: function is only callable from a valid schema, so this is acceptable.
             if let serde_json::Value::String(s) = v {
-                return pcf_string(s)
+                return pcf_string(s);
             }
         }
 
         // Strip out unused fields ([STRIP] rule)
         if field_ordering_position(k).is_none() {
-            continue
+            continue;
         }
 
         // Fully qualify the name, if it isn't already ([FULLNAMES] rule).
@@ -696,12 +805,12 @@ fn pcf_map(schema: &Map<String, serde_json::Value>) -> String {
             let n = match ns {
                 Some(namespace) if !name.contains('.') => {
                     Cow::Owned(format!("{}.{}", namespace, name))
-                },
+                }
                 _ => Cow::Borrowed(name),
             };
 
             fields.push((k, format!("{}:{}", pcf_string(k), pcf_string(&*n))));
-            continue
+            continue;
         }
 
         // Strip off quotes surrounding "size" type, if they exist ([INTEGERS] rule).
@@ -711,7 +820,7 @@ fn pcf_map(schema: &Map<String, serde_json::Value>) -> String {
                 None => v.as_i64().unwrap(),
             };
             fields.push((k, format!("{}:{}", pcf_string(k), i)));
-            continue
+            continue;
         }
 
         // For anything else, recursively process the result.
@@ -861,10 +970,11 @@ mod tests {
                 RecordField {
                     name: "a".to_string(),
                     doc: None,
-                    default: Some(Value::Number(42i64.into())),
+                    default: Some(JsonValue::Number(42i64.into())),
                     schema: Schema::Long,
                     order: RecordFieldOrder::Ascending,
                     position: 0,
+                    index: false,
                 },
                 RecordField {
                     name: "b".to_string(),
@@ -873,10 +983,10 @@ mod tests {
                     schema: Schema::String,
                     order: RecordFieldOrder::Ascending,
                     position: 1,
+                    index: false,
                 },
             ],
             lookup,
-            allow_partial: false,
         };
 
         assert_eq!(expected, schema);
@@ -988,5 +1098,4 @@ mod tests {
             format!("{}", schema.fingerprint::<Md5>())
         );
     }
-
 }

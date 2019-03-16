@@ -500,6 +500,7 @@ extern crate rand;
 #[macro_use]
 extern crate serde;
 
+#[macro_use]
 extern crate serde_json;
 #[cfg(feature = "snappy")]
 extern crate snap;
@@ -512,6 +513,9 @@ extern crate crc;
 #[cfg(test)]
 #[macro_use]
 extern crate serde_derive;
+
+#[macro_use]
+extern crate lazy_static;
 
 mod codec;
 mod de;
@@ -528,7 +532,7 @@ pub mod types;
 pub use crate::codec::Codec;
 pub use crate::de::from_value;
 pub use crate::reader::{from_avro_datum, Reader};
-pub use crate::schema::{ParseSchemaError, Schema};
+pub use crate::schema::{ParseSchemaError, Schema, LruLimit};
 pub use crate::ser::to_value;
 pub use crate::types::SchemaResolutionError;
 pub use crate::util::{max_allocation_bytes, DecodeError};
@@ -586,10 +590,10 @@ mod tests {
         assert_eq!(
             reader.next().unwrap().unwrap(),
             Value::Record(vec![
-                ("a".to_string(), Value::Long(27)),
-                ("b".to_string(), Value::String("foo".to_string())),
-                ("c".to_string(), Value::Enum(1, "spades".to_string())),
-            ])
+                ("a".to_string(), Value::Long(27, None)),
+                ("b".to_string(), Value::String("foo".to_string(), None)),
+                ("c".to_string(), Value::Enum(1, "spades".to_string(), None)),
+            ], None)
         );
         assert!(reader.next().is_none());
     }
@@ -629,10 +633,10 @@ mod tests {
         assert_eq!(
             reader.next().unwrap().unwrap(),
             Value::Record(vec![
-                ("a".to_string(), Value::Long(27)),
-                ("b".to_string(), Value::String("foo".to_string())),
-                ("c".to_string(), Value::Enum(2, "clubs".to_string())),
-            ])
+                ("a".to_string(), Value::Long(27, None)),
+                ("b".to_string(), Value::String("foo".to_string(), None)),
+                ("c".to_string(), Value::Enum(2, "clubs".to_string(), None)),
+            ], None)
         );
         assert!(reader.next().is_none());
     }
@@ -728,10 +732,10 @@ mod tests {
         assert_eq!(
             reader.next().unwrap().unwrap(),
             Value::Record(vec![
-                ("a".to_string(), Value::Long(27)),
-                ("b".to_string(), Value::String("foo".to_string())),
-                ("c".to_string(), Value::Enum(2, "clubs".to_string())),
-            ])
+                ("a".to_string(), Value::Long(27, None)),
+                ("b".to_string(), Value::String("foo".to_string(), None)),
+                ("c".to_string(), Value::Enum(2, "clubs".to_string(), None)),
+            ], None)
         );
     }
 

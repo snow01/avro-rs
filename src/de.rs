@@ -95,11 +95,11 @@ impl<'a, 'de> de::Deserializer<'de> for &'a mut Deserializer<'de> {
     {
         match *self.input {
             Value::Null => visitor.visit_unit(),
-            Value::Boolean(b) => visitor.visit_bool(b),
-            Value::Int(i) => visitor.visit_i32(i),
-            Value::Long(i) => visitor.visit_i64(i),
-            Value::Float(x) => visitor.visit_f32(x),
-            Value::Double(x) => visitor.visit_f64(x),
+            Value::Boolean(b, _) => visitor.visit_bool(b),
+            Value::Int(i, _) => visitor.visit_i32(i),
+            Value::Long(i, _) => visitor.visit_i64(i),
+            Value::Float(x, _) => visitor.visit_f32(x),
+            Value::Double(x, _) => visitor.visit_f64(x),
             _ => Err(Error::custom("incorrect value")),
         }
     }
@@ -120,8 +120,8 @@ impl<'a, 'de> de::Deserializer<'de> for &'a mut Deserializer<'de> {
         V: Visitor<'de>,
     {
         match *self.input {
-            Value::String(ref s) => visitor.visit_str(s),
-            Value::Bytes(ref bytes) | Value::Fixed(_, ref bytes) => ::std::str::from_utf8(bytes)
+            Value::String(ref s, _) => visitor.visit_str(s),
+            Value::Bytes(ref bytes, _) | Value::Fixed(_, ref bytes, None) => ::std::str::from_utf8(bytes)
                 .map_err(|e| Error::custom(e.description()))
                 .and_then(|s| visitor.visit_str(s)),
             _ => Err(Error::custom("not a string|bytes|fixed")),
@@ -133,8 +133,8 @@ impl<'a, 'de> de::Deserializer<'de> for &'a mut Deserializer<'de> {
         V: Visitor<'de>,
     {
         match *self.input {
-            Value::String(ref s) => visitor.visit_string(s.to_owned()),
-            Value::Bytes(ref bytes) | Value::Fixed(_, ref bytes) => {
+            Value::String(ref s, _) => visitor.visit_string(s.to_owned()),
+            Value::Bytes(ref bytes, _) | Value::Fixed(_, ref bytes, _) => {
                 String::from_utf8(bytes.to_owned())
                     .map_err(|e| Error::custom(e.description()))
                     .and_then(|s| visitor.visit_string(s))
@@ -148,8 +148,8 @@ impl<'a, 'de> de::Deserializer<'de> for &'a mut Deserializer<'de> {
         V: Visitor<'de>,
     {
         match *self.input {
-            Value::String(ref s) => visitor.visit_bytes(s.as_bytes()),
-            Value::Bytes(ref bytes) | Value::Fixed(_, ref bytes) => visitor.visit_bytes(bytes),
+            Value::String(ref s, _) => visitor.visit_bytes(s.as_bytes()),
+            Value::Bytes(ref bytes, _) | Value::Fixed(_, ref bytes, _) => visitor.visit_bytes(bytes),
             _ => Err(Error::custom("not a string|bytes|fixed")),
         }
     }
@@ -159,8 +159,8 @@ impl<'a, 'de> de::Deserializer<'de> for &'a mut Deserializer<'de> {
         V: Visitor<'de>,
     {
         match *self.input {
-            Value::String(ref s) => visitor.visit_byte_buf(s.clone().into_bytes()),
-            Value::Bytes(ref bytes) | Value::Fixed(_, ref bytes) => {
+            Value::String(ref s, _) => visitor.visit_byte_buf(s.clone().into_bytes()),
+            Value::Bytes(ref bytes, _) | Value::Fixed(_, ref bytes, _) => {
                 visitor.visit_byte_buf(bytes.to_owned())
             },
             _ => Err(Error::custom("not a string|bytes|fixed")),
@@ -172,8 +172,8 @@ impl<'a, 'de> de::Deserializer<'de> for &'a mut Deserializer<'de> {
         V: Visitor<'de>,
     {
         match *self.input {
-            Value::Union(ref inner) if inner.as_ref() == &Value::Null => visitor.visit_none(),
-            Value::Union(ref inner) => visitor.visit_some(&mut Deserializer::new(inner)),
+            Value::Union(ref inner, _) if inner.as_ref() == &Value::Null => visitor.visit_none(),
+            Value::Union(ref inner, _) => visitor.visit_some(&mut Deserializer::new(inner)),
             _ => Err(Error::custom("not a union")),
         }
     }
@@ -215,7 +215,7 @@ impl<'a, 'de> de::Deserializer<'de> for &'a mut Deserializer<'de> {
         V: Visitor<'de>,
     {
         match *self.input {
-            Value::Array(ref items) => visitor.visit_seq(SeqDeserializer::new(items)),
+            Value::Array(ref items, _) => visitor.visit_seq(SeqDeserializer::new(items)),
             _ => Err(Error::custom("not an array")),
         }
     }
@@ -244,7 +244,7 @@ impl<'a, 'de> de::Deserializer<'de> for &'a mut Deserializer<'de> {
         V: Visitor<'de>,
     {
         match *self.input {
-            Value::Map(ref items) => visitor.visit_map(MapDeserializer::new(items)),
+            Value::Map(ref items, _) => visitor.visit_map(MapDeserializer::new(items)),
             _ => Err(Error::custom("not a map")),
         }
     }
@@ -259,7 +259,7 @@ impl<'a, 'de> de::Deserializer<'de> for &'a mut Deserializer<'de> {
         V: Visitor<'de>,
     {
         match *self.input {
-            Value::Record(ref fields) => visitor.visit_map(StructDeserializer::new(fields)),
+            Value::Record(ref fields, _) => visitor.visit_map(StructDeserializer::new(fields)),
             _ => Err(Error::custom("not a record")),
         }
     }
