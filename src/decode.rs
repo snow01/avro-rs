@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet, BTreeSet};
+use std::collections::{HashMap, HashSet};
 use std::io::Read;
 use std::mem::transmute;
 
@@ -7,6 +7,7 @@ use failure::Error;
 use crate::schema::Schema;
 use crate::types::{Value, LruValue};
 use crate::util::{safe_len, zag_i32, zag_i64, DecodeError};
+use crate::schema::SchemaKind::LruSet;
 
 #[inline]
 fn decode_date<R: Read>(reader: &mut R) -> Result<Value, Error> {
@@ -176,7 +177,7 @@ pub fn decode<R: Read>(schema: &Schema, reader: &mut R) -> Result<Value, Error> 
             Ok(Value::Set(items, None))
         },
         Schema::LruSet(ref lru_limit) => {
-            let mut items: BTreeSet<LruValue> = BTreeSet::new();
+            let mut items: HashMap<String, LruValue> = HashMap::new();
 
             loop {
                 let len = decode_len(reader)?;
@@ -186,11 +187,12 @@ pub fn decode<R: Read>(schema: &Schema, reader: &mut R) -> Result<Value, Error> 
                     break
                 }
 
+                items.reserve(len as usize);
                 for _ in 0..len {
                     if let Value::String(key, _) = decode(&Schema::String, reader)? {
                         let access_time = zag_i64(reader)?;
                         let count = zag_i64(reader)?;
-                        items.insert(LruValue::new(key, access_time, count));
+                        items.insert(key, LruValue::new(access_time, count));
                     } else {
                         return Err(DecodeError::new("map key is not a string").into())
                     }

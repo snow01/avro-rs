@@ -1,5 +1,5 @@
 //! Logic handling the intermediate representation of Avro values.
-use std::collections::{HashMap, BTreeSet};
+use std::collections::HashMap;
 use std::collections::HashSet;
 use std::hash::BuildHasher;
 use std::u8;
@@ -9,9 +9,7 @@ use serde_json::Value as JsonValue;
 
 use crate::LruLimit;
 use crate::schema::{RecordField, Schema, SchemaKind, UnionSchema};
-use std::cmp::Ordering;
 
-const KEY: &str = "key";
 const ACCESS_TIME: &str = "access_time";
 const COUNT: &str = "count";
 
@@ -22,9 +20,8 @@ lazy_static! {
                 "type": "record",
                 "name": "lru_value",
                 "fields": [
-                    {"name": "key", "type": "long", "default": 0},
-                    {"name": "access_time", "type": "long", "default": 0},
-                    {"name": "count", "type": "long", "default": 0}
+                    {"access_time": "a", "type": "long", "default": 0},
+                    {"count": "b", "type": "long", "default": 0}
                 ]
             }
         "#,
@@ -115,46 +112,20 @@ pub enum Value {
     Set(HashSet<String>, Option<ValueSetting>),
 
     // vector of value, access time, counts
-    LruSet(BTreeSet<LruValue>, LruLimit, Option<ValueSetting>),
+    LruSet(HashMap<String, LruValue>, LruLimit, Option<ValueSetting>),
 
     Optional(Option<Box<Value>>, Option<ValueSetting>),
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct LruValue {
-    pub key: String,
     pub access_time: i64,
     pub count: i64,
 }
 
-impl PartialOrd for LruValue {
-    fn partial_cmp(&self, other: &LruValue) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for LruValue {
-    fn cmp(&self, other: &LruValue) -> Ordering {
-        match self.access_time.cmp(&other.access_time) {
-            Ordering::Less => Ordering::Less,
-            Ordering::Equal => self.key.cmp(&other.key),
-            Ordering::Greater => Ordering::Greater,
-        }
-    }
-}
-
-impl PartialEq for LruValue {
-    fn eq(&self, other: &LruValue) -> bool {
-        self.key == other.key
-    }
-}
-
-impl Eq for LruValue {}
-
 impl LruValue {
-    pub fn new(key: String, access_time: i64, count: i64) -> LruValue {
+    pub fn new(access_time: i64, count: i64) -> LruValue {
         LruValue {
-            key,
             access_time,
             count
         }
@@ -162,7 +133,6 @@ impl LruValue {
 
     fn json(&self) -> JsonValue {
         let mut map: serde_json::Map<String, JsonValue> = serde_json::Map::new();
-        map.insert(KEY.to_owned(), json!(self.key));
         map.insert(ACCESS_TIME.to_owned(), json!(self.access_time));
         map.insert(COUNT.to_owned(), json!(self.count));
 
@@ -408,15 +378,15 @@ impl Value {
                 )
             }
 
-            (&Value::Date(_, _), &Schema::Date) => {
+            (&Value::Date(ref value, _), &Schema::Date) => {
                 // if value can be represented as u4, then it's a valid Date
                 true
             }
-            (&Value::Set(_, _), &Schema::Set) => {
+            (&Value::Set(ref items, _), &Schema::Set) => {
                 // if value could be represented as typed HashSet of String, then no further validations are required.
                 true
             }
-            (&Value::LruSet(_, _, _), &Schema::LruSet(_)) => {
+            (&Value::LruSet(ref items, _, _), &Schema::LruSet(ref lru_limit)) => {
                 // if value could be represented as typed HashMap of String and LruValue, then no further validations are required.
                 true
             }
@@ -788,16 +758,11 @@ impl Value {
 
         match resolved {
             Value::Record(fields, _) => {
-                // TODO: convert this into builder
-                let mut key = "".to_owned();
                 let mut access_time = 0;
                 let mut count = 0;
 
                 for (field, value) in fields {
                     match (field.as_str(), value) {
-                        (KEY, Value::String(v, _)) => {
-                            key = v;
-                        }
                         (ACCESS_TIME, Value::Long(v, _)) => {
                             access_time = v;
                         }
@@ -809,7 +774,6 @@ impl Value {
                 }
 
                 Ok(LruValue {
-                    key,
                     access_time,
                     count,
                 })
@@ -822,11 +786,11 @@ impl Value {
 
     fn resolve_lru_set(self, lru_limit: LruLimit, index: bool) -> Result<Self, Error> {
         match self {
-            Value::Array(items, _) => Ok(Value::LruSet(
+            Value::Map(items, _) => Ok(Value::LruSet(
                 items
                     .into_iter()
-                    .map(|value| value.resolve_lru_value())
-                    .collect::<Result<BTreeSet<_>, _>>()?,
+                    .map(|(key, value)| value.resolve_lru_value().map(|value| (key, value)))
+                    .collect::<Result<HashMap<_, _>, _>>()?,
                 lru_limit,
                 Some(ValueSetting { index }),
             )),
@@ -864,8 +828,8 @@ impl Value {
             Value::Double(n, _) => json!(n),
             Value::Bytes(b, _) => json!(b),
             Value::String(s, _) => JsonValue::String(s.to_owned()),
-            Value::Fixed(_, data, _) => json!(data),
-            Value::Enum(_, value, _) => JsonValue::String(value.to_owned()),
+            Value::Fixed(size, data, _) => json!(data),
+            Value::Enum(index, value, _) => JsonValue::String(value.to_owned()),
             Value::Union(value, _) => value.json(),
             Value::Array(items, _) => {
                 JsonValue::Array(items.into_iter().map(|item| item.json()).collect::<_>())
@@ -881,7 +845,7 @@ impl Value {
                 JsonValue::Array(items.into_iter().map(|item| JsonValue::String(item.to_owned())).collect::<_>())
             }
             Value::LruSet(items, _, _) => {
-                JsonValue::Array(items.into_iter().map(|value| value.json()).collect::<_>())
+                JsonValue::Object(items.into_iter().map(|(key, value)| (key.clone(), value.json())).collect::<_>())
             }
             Value::Optional(value, _) => {
                 match value {
