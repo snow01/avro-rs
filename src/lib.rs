@@ -519,8 +519,8 @@ extern crate lazy_static;
 
 mod codec;
 mod de;
-mod decode;
-mod encode;
+pub mod decode;
+pub mod encode;
 mod reader;
 mod ser;
 mod util;

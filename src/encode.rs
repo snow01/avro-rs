@@ -121,6 +121,19 @@ pub fn encode_ref(value: &Value, schema: &Schema, buffer: &mut Vec<u8>) {
             }
             buffer.push(0u8);
         },
+        Value::Optional(value, _) => {
+            match value {
+                Some(val) => {
+                    if let Schema::Optional(ref inner) = *schema {
+                        encode_long(1 as i64, buffer);
+                        encode_ref(&*val, inner, buffer);
+                    }
+                }
+                None => {
+                    encode_long(0 as i64, buffer);
+                }
+            }
+        },
     }
 }
 

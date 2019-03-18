@@ -44,7 +44,7 @@ impl SchemaResolutionError {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ValueSetting {
-    index: bool
+    pub index: bool
 }
 
 /// Represents any valid Avro value
@@ -113,6 +113,8 @@ pub enum Value {
 
     // vector of value, access time, counts
     LruSet(HashMap<String, LruValue>, LruLimit, Option<ValueSetting>),
+
+    Optional(Option<Box<Value>>, Option<ValueSetting>),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -388,6 +390,13 @@ impl Value {
                 // if value could be represented as typed HashMap of String and LruValue, then no further validations are required.
                 true
             }
+            (&Value::Optional(ref value, _), &Schema::Optional(ref inner)) => {
+                match value {
+                    Some(v) => v.validate(inner),
+                    None => true
+                }
+            }
+
             _ => false,
         }
     }
@@ -429,6 +438,7 @@ impl Value {
             Schema::Date => self.resolve_datetime(false),
             Schema::Set => self.resolve_set(false),
             Schema::LruSet(ref lru_limit) => self.resolve_lru_set(lru_limit.clone(), false),
+            Schema::Optional(ref inner) => self.resolve_optional(inner, false),
         }
     }
 
@@ -469,6 +479,7 @@ impl Value {
             Schema::Date => self.resolve_datetime(index),
             Schema::Set => self.resolve_set(index),
             Schema::LruSet(ref lru_limit) => self.resolve_lru_set(lru_limit.clone(), index),
+            Schema::Optional(ref inner) => self.resolve_optional(inner, index),
         }
     }
 
@@ -790,6 +801,23 @@ impl Value {
         }
     }
 
+    fn resolve_optional(self, schema: &Schema, index: bool) -> Result<Self, Error> {
+        let v = match self {
+            // Both are Optional case.
+            Value::Optional(v, _) => v,
+            // Reader is an Optional, but writer is not.
+            v => Some(Box::new(v)),
+        };
+        // Find the first match in the reader schema.
+        match v {
+            Some(value) => {
+                let value = value.resolve(schema)?;
+                Ok(Value::Optional(Some(Box::new(value)), Some(ValueSetting { index })))
+            },
+            None => Ok(Value::Optional(None, Some(ValueSetting { index })))
+        }
+    }
+
     pub fn json(&self) -> JsonValue {
         match self {
             Value::Null => JsonValue::Null,
@@ -800,9 +828,9 @@ impl Value {
             Value::Double(n, _) => json!(n),
             Value::Bytes(b, _) => json!(b),
             Value::String(s, _) => JsonValue::String(s.to_owned()),
-            Value::Fixed(_, _, _) => JsonValue::Null,
-            Value::Enum(_, _, _) => JsonValue::Null,
-            Value::Union(_, _) => JsonValue::Null,
+            Value::Fixed(size, data, _) => json!(data),
+            Value::Enum(index, value, _) => JsonValue::String(value.to_owned()),
+            Value::Union(value, _) => value.json(),
             Value::Array(items, _) => {
                 JsonValue::Array(items.into_iter().map(|item| item.json()).collect::<_>())
             }
@@ -812,14 +840,19 @@ impl Value {
             Value::Record(items, _) => {
                 JsonValue::Object(items.iter().map(|(key, value)| (key.clone(), value.json())).collect::<_>())
             }
-
+            Value::Date(t, _) => json!(t),
             Value::Set(items, _) => {
                 JsonValue::Array(items.into_iter().map(|item| JsonValue::String(item.to_owned())).collect::<_>())
             }
             Value::LruSet(items, _, _) => {
                 JsonValue::Object(items.into_iter().map(|(key, value)| (key.clone(), value.json())).collect::<_>())
             }
-            Value::Date(t, _) => json!(t)
+            Value::Optional(value, _) => {
+                match value {
+                    Some(v) => v.json(),
+                    None => JsonValue::Null,
+                }
+            },
         }
     }
 

@@ -109,6 +109,9 @@ pub enum Schema {
 
     // capture limit and limit by = supported values: days, hour, minute, count
     LruSet(LruLimit),
+
+    // optional type
+    Optional(Box<Schema>),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -160,6 +163,7 @@ pub(crate) enum SchemaKind {
     Date,
     Set,
     LruSet,
+    Optional,
 }
 
 impl<'a> From<&'a Schema> for SchemaKind {
@@ -184,6 +188,7 @@ impl<'a> From<&'a Schema> for SchemaKind {
             Schema::Date => SchemaKind::Date,
             Schema::Set => SchemaKind::Set,
             Schema::LruSet(_) => SchemaKind::LruSet,
+            Schema::Optional(_) => SchemaKind::Optional,
         }
     }
 }
@@ -209,6 +214,7 @@ impl<'a> From<&'a AvroValue> for SchemaKind {
             AvroValue::Date(_, _) => SchemaKind::Date,
             AvroValue::Set(_, _) => SchemaKind::Set,
             AvroValue::LruSet(_, _, _) => SchemaKind::LruSet,
+            AvroValue::Optional(_, _) => SchemaKind::Optional,
         }
     }
 }
@@ -497,6 +503,7 @@ impl Schema {
                 "map" => Schema::parse_map(complex),
                 "fixed" => Schema::parse_fixed(complex),
                 "lru_set" => Schema::parse_lru_set(complex),
+                "optional" => Schema::parse_optional(complex),
                 other => Schema::parse_primitive(other),
             },
             Some(&JsonValue::Object(ref data)) => match data.get("type") {
@@ -644,6 +651,16 @@ impl Schema {
                     })
             })
     }
+
+    /// Parse a `serde_json::Value` representing a Avro array type into a
+    /// `Schema`.
+    fn parse_optional(complex: &Map<String, JsonValue>) -> Result<Self, Error> {
+        complex
+            .get("value")
+            .ok_or_else(|| ParseSchemaError::new("No `value` defined for optional").into())
+            .and_then(|value| Schema::parse(value))
+            .map(|schema| Schema::Optional(Box::new(schema)))
+    }
 }
 
 impl<'de> Deserialize<'de> for Schema {
@@ -746,6 +763,12 @@ impl Serialize for Schema {
                 let mut map = serializer.serialize_map(None)?;
                 map.serialize_entry("type", "lru_set")?;
                 map.serialize_entry("limit", limit)?;
+                map.end()
+            }
+            Schema::Optional(ref inner) => {
+                let mut map = serializer.serialize_map(Some(2))?;
+                map.serialize_entry("type", "optional")?;
+                map.serialize_entry("value", &*inner.clone())?;
                 map.end()
             }
         }
