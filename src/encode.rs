@@ -113,8 +113,8 @@ pub fn encode_ref(value: &Value, schema: &Schema, buffer: &mut Vec<u8>) {
         Value::LruSet(items, _, _) => {
             if items.len() > 0 {
                 encode_long(items.len() as i64, buffer);
-                for (key, value) in items {
-                    encode_bytes(key, buffer);
+                for value in items {
+                    encode_bytes(&value.key, buffer);
                     encode_long(value.access_time, buffer);
                     encode_long(value.count, buffer);
                 }
