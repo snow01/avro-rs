@@ -344,7 +344,7 @@ impl RecordField {
         let schema = field
             .get("type")
             .ok_or_else(|| ParseSchemaError::new("No `type` in record field").into())
-            .and_then(|type_| Schema::parse(type_))?;
+            .and_then(|type_| Schema::parse_complex(field))?;
 
         let default = field.get("default").cloned();
 

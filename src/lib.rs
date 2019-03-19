@@ -545,6 +545,110 @@ mod tests {
     use crate::schema::Schema;
     use crate::types::{Record, Value};
 
+    #[test]
+    fn parse_schema() {
+        let schema = r#"
+        {
+            "name": "a",
+            "doc": "Filterable attributes",
+            "index": true,
+            "type": "record",
+            "fields": [
+              {
+                "name": "lang",
+                "type": "optional",
+                "value": "string"
+              },
+              {
+                "name": "city",
+                "type": "optional",
+                "value": "string"
+              },
+              {
+                "name": "state",
+                "type": "optional",
+                "value": "string"
+              },
+              {
+                "name": "followed_location",
+                "type": "set"
+              },
+              {
+                "name": "followed_np",
+                "type": "map",
+                "values": {
+                  "type": "enum",
+                  "name": "status",
+                  "symbols": ["FOLLOW", "BLOCK", "UNFOLLOW"]
+                }
+              },
+              {
+                "name": "followed_channel",
+                "type": "set"
+              },
+              {
+                "name": "segment",
+                "type": "set"
+              },
+              {
+                "name": "gender",
+                "type": "optional",
+                "value": "string"
+              },
+              {
+                "name": "age_years",
+                "type": "optional",
+                "value": "int"
+              },
+              {
+                "name": "dob",
+                "type": "optional",
+                "value": "date"
+              },
+              {
+                "name": "sun_sign",
+                "type": "optional",
+                "value": "string"
+              },
+              {
+                "name": "moon_sign",
+                "type": "optional",
+                "value": "string"
+              },
+              {
+                "name": "activation_date",
+                "type": "optional",
+                "value": "date"
+              },
+              {
+                "name": "last_delivery_date",
+                "type": "optional",
+                "value": "date"
+              },
+              {
+                "name": "last_access_date",
+                "type": "optional",
+                "value": "date"
+              },
+              {
+                "name": "last_open_date",
+                "type": "optional",
+                "value": "date"
+              },
+              {
+                "name": "user_type",
+                "type": "optional",
+                "value": "string"
+              }
+            ]
+          }
+        "#;
+
+        let writer_schema = Schema::parse_str(schema).unwrap();
+        println!("Schema: {:?}", writer_schema);
+
+    }
+
     //TODO: move where it fits better
     #[test]
     fn test_enum_default() {
