@@ -506,12 +506,12 @@ impl Schema {
                 "optional" => Schema::parse_optional(complex),
                 other => Schema::parse_primitive(other),
             },
-            Some(&JsonValue::Object(ref data)) => match data.get("type") {
+            Some(&JsonValue::Object(ref data)) => Schema::parse_complex(data) /*match data.get("type") {
                 Some(ref value) => Schema::parse(value),
                 None => Err(
                     ParseSchemaError::new(format!("Unknown complex type: {:?}", complex)).into(),
                 ),
-            },
+            }*/,
             _ => Err(ParseSchemaError::new("No `type` in complex type").into()),
         }
     }

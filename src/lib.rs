@@ -639,7 +639,22 @@ mod tests {
                 "name": "user_type",
                 "type": "optional",
                 "value": "string"
-              }
+              },
+              {
+               "name": "followed_np",
+               "type": {
+                 "type": "map",
+                 "values": {
+                   "type": "enum",
+                   "name": "status",
+                   "symbols": [
+                     "FOLLOW",
+                     "BLOCK",
+                     "UNFOLLOW"
+                   ]
+                 }
+               }
+             }
             ]
           }
         "#;

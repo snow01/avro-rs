@@ -127,7 +127,7 @@ impl LruValue {
     pub fn new(access_time: i64, count: i64) -> LruValue {
         LruValue {
             access_time,
-            count
+            count,
         }
     }
 
@@ -494,7 +494,7 @@ impl Value {
 
     fn resolve_boolean(self, index: bool) -> Result<Self, Error> {
         match self {
-            Value::Boolean(b, _) => Ok(Value::Boolean(b, Some(ValueSetting { index }))),
+            Value::Boolean(b, _) => Ok(Value::Boolean(b, Self::get_value_setting(index))),
             other => {
                 Err(SchemaResolutionError::new(format!("Boolean expected, got {:?}", other)).into())
             }
@@ -503,8 +503,8 @@ impl Value {
 
     fn resolve_int(self, index: bool) -> Result<Self, Error> {
         match self {
-            Value::Int(n, _) => Ok(Value::Int(n, Some(ValueSetting { index }))),
-            Value::Long(n, _) => Ok(Value::Int(n as i32, Some(ValueSetting { index }))),
+            Value::Int(n, _) => Ok(Value::Int(n, Self::get_value_setting(index))),
+            Value::Long(n, _) => Ok(Value::Int(n as i32, Self::get_value_setting(index))),
             other => {
                 Err(SchemaResolutionError::new(format!("Int expected, got {:?}", other)).into())
             }
@@ -513,8 +513,8 @@ impl Value {
 
     fn resolve_long(self, index: bool) -> Result<Self, Error> {
         match self {
-            Value::Int(n, _) => Ok(Value::Long(i64::from(n), Some(ValueSetting { index }))),
-            Value::Long(n, _) => Ok(Value::Long(n, Some(ValueSetting { index }))),
+            Value::Int(n, _) => Ok(Value::Long(i64::from(n), Self::get_value_setting(index))),
+            Value::Long(n, _) => Ok(Value::Long(n, Self::get_value_setting(index))),
             other => {
                 Err(SchemaResolutionError::new(format!("Long expected, got {:?}", other)).into())
             }
@@ -523,10 +523,10 @@ impl Value {
 
     fn resolve_float(self, index: bool) -> Result<Self, Error> {
         match self {
-            Value::Int(n, _) => Ok(Value::Float(n as f32, Some(ValueSetting { index }))),
-            Value::Long(n, _) => Ok(Value::Float(n as f32, Some(ValueSetting { index }))),
-            Value::Float(x, _) => Ok(Value::Float(x, Some(ValueSetting { index }))),
-            Value::Double(x, _) => Ok(Value::Float(x as f32, Some(ValueSetting { index }))),
+            Value::Int(n, _) => Ok(Value::Float(n as f32, Self::get_value_setting(index))),
+            Value::Long(n, _) => Ok(Value::Float(n as f32, Self::get_value_setting(index))),
+            Value::Float(x, _) => Ok(Value::Float(x, Self::get_value_setting(index))),
+            Value::Double(x, _) => Ok(Value::Float(x as f32, Self::get_value_setting(index))),
             other => {
                 Err(SchemaResolutionError::new(format!("Float expected, got {:?}", other)).into())
             }
@@ -535,10 +535,10 @@ impl Value {
 
     fn resolve_double(self, index: bool) -> Result<Self, Error> {
         match self {
-            Value::Int(n, _) => Ok(Value::Double(f64::from(n), Some(ValueSetting { index }))),
-            Value::Long(n, _) => Ok(Value::Double(n as f64, Some(ValueSetting { index }))),
-            Value::Float(x, _) => Ok(Value::Double(f64::from(x), Some(ValueSetting { index }))),
-            Value::Double(x, _) => Ok(Value::Double(x, Some(ValueSetting { index }))),
+            Value::Int(n, _) => Ok(Value::Double(f64::from(n), Self::get_value_setting(index))),
+            Value::Long(n, _) => Ok(Value::Double(n as f64, Self::get_value_setting(index))),
+            Value::Float(x, _) => Ok(Value::Double(f64::from(x), Self::get_value_setting(index))),
+            Value::Double(x, _) => Ok(Value::Double(x, Self::get_value_setting(index))),
             other => {
                 Err(SchemaResolutionError::new(format!("Double expected, got {:?}", other)).into())
             }
@@ -547,14 +547,14 @@ impl Value {
 
     fn resolve_bytes(self, index: bool) -> Result<Self, Error> {
         match self {
-            Value::Bytes(bytes, _) => Ok(Value::Bytes(bytes, Some(ValueSetting { index }))),
-            Value::String(s, _) => Ok(Value::Bytes(s.into_bytes(), Some(ValueSetting { index }))),
+            Value::Bytes(bytes, _) => Ok(Value::Bytes(bytes, Self::get_value_setting(index))),
+            Value::String(s, _) => Ok(Value::Bytes(s.into_bytes(), Self::get_value_setting(index))),
             Value::Array(items, _) => Ok(Value::Bytes(
                 items
                     .into_iter()
                     .map(Value::try_u8)
                     .collect::<Result<Vec<_>, _>>()?,
-                Some(ValueSetting { index }),
+                Self::get_value_setting(index),
             )),
             other => {
                 Err(SchemaResolutionError::new(format!("Bytes expected, got {:?}", other)).into())
@@ -564,8 +564,8 @@ impl Value {
 
     fn resolve_string(self, index: bool) -> Result<Self, Error> {
         match self {
-            Value::String(s, _) => Ok(Value::String(s, Some(ValueSetting { index }))),
-            Value::Bytes(bytes, _) => Ok(Value::String(String::from_utf8(bytes)?, Some(ValueSetting { index }))),
+            Value::String(s, _) => Ok(Value::String(s, Self::get_value_setting(index))),
+            Value::Bytes(bytes, _) => Ok(Value::String(String::from_utf8(bytes)?, Self::get_value_setting(index))),
             other => {
                 Err(SchemaResolutionError::new(format!("String expected, got {:?}", other)).into())
             }
@@ -575,7 +575,7 @@ impl Value {
     fn resolve_fixed(self, size: usize, index: bool) -> Result<Self, Error> {
         match self {
             Value::Fixed(n, bytes, _) => if n == size {
-                Ok(Value::Fixed(n, bytes, Some(ValueSetting { index })))
+                Ok(Value::Fixed(n, bytes, Self::get_value_setting(index)))
             } else {
                 Err(SchemaResolutionError::new(format!(
                     "Fixed size mismatch, {} expected, got {}",
@@ -591,7 +591,7 @@ impl Value {
     fn resolve_enum(self, symbols: &[String], index: bool) -> Result<Self, Error> {
         let validate_symbol = |symbol: String, symbols: &[String]| {
             if let Some(i) = symbols.iter().position(|ref item| item == &&symbol) {
-                Ok(Value::Enum(i as i32, symbol, Some(ValueSetting { index })))
+                Ok(Value::Enum(i as i32, symbol, Self::get_value_setting(index)))
             } else {
                 Err(SchemaResolutionError::new(format!(
                     "Enum default {} is not among allowed symbols {:?}",
@@ -639,7 +639,7 @@ impl Value {
                     .into_iter()
                     .map(|item| item.resolve_internal(schema, index))
                     .collect::<Result<Vec<_>, _>>()?,
-                Some(ValueSetting { index }),
+                Self::get_value_setting(index),
             )),
             other => Err(SchemaResolutionError::new(format!(
                 "Array({:?}) expected, got {:?}",
@@ -655,7 +655,7 @@ impl Value {
                     .into_iter()
                     .map(|(key, value)| value.resolve_internal(schema, index).map(|value| (key, value)))
                     .collect::<Result<HashMap<_, _>, _>>()?,
-                Some(ValueSetting { index }),
+                Self::get_value_setting(index),
             )),
             other => Err(SchemaResolutionError::new(format!(
                 "Map({:?}) expected, got {:?}",
@@ -701,31 +701,30 @@ impl Value {
                     .map(|value| (field.name.clone(), value))
             }).collect::<Result<Vec<_>, _>>()?;
 
-        Ok(Value::Record(new_fields, Some(ValueSetting { index })))
+        Ok(Value::Record(new_fields, Self::get_value_setting(index)))
     }
 
     // u64 to u64 is default
     // string to u64 is through well defined patterns
     fn resolve_datetime(self, index: bool) -> Result<Self, Error> {
         match self {
-            Value::Long(val, _) => Ok(Value::Date(val, Some(ValueSetting { index }))),
-            Value::Date(val, _) => Ok(Value::Date(val, Some(ValueSetting { index }))),
+            Value::Long(val, _) => Ok(Value::Date(val, Self::get_value_setting(index))),
+            Value::Date(val, _) => Ok(Value::Date(val, Self::get_value_setting(index))),
             Value::String(val, _) => {
                 let dt = chrono::DateTime::parse_from_rfc3339(&val);
                 if !dt.is_err() {
                     let epoch = dt.unwrap().timestamp_millis();
-                    return Ok(Value::Date(epoch, Some(ValueSetting { index })));
-
+                    return Ok(Value::Date(epoch, Self::get_value_setting(index)));
                 }
 
                 let dt = chrono::DateTime::parse_from_rfc2822(&val);
                 if !dt.is_err() {
                     let epoch = dt.unwrap().timestamp_millis();
-                    return Ok(Value::Date(epoch, Some(ValueSetting { index })));
+                    return Ok(Value::Date(epoch, Self::get_value_setting(index)));
                 }
 
-                return Err(failure::err_msg(format!("Couldn't resolve string value {} to date", val)))
-            },
+                return Err(failure::err_msg(format!("Couldn't resolve string value {} to date", val)));
+            }
             other => Err(SchemaResolutionError::new(format!("Date expected, got {:?}", other)).into()),
         }
     }
@@ -744,9 +743,9 @@ impl Value {
                         }
                     })
                     .collect::<Result<HashSet<_>, SchemaResolutionError>>()?,
-                Some(ValueSetting { index }),
+                Self::get_value_setting(index),
             )),
-            Value::Set(items, _) => Ok(Value::Set(items, Some(ValueSetting { index }))),
+            Value::Set(items, _) => Ok(Value::Set(items, Self::get_value_setting(index))),
             other => Err(SchemaResolutionError::new(format!(
                 "Set expected, got {:?}", other
             )).into()),
@@ -792,9 +791,9 @@ impl Value {
                     .map(|(key, value)| value.resolve_lru_value().map(|value| (key, value)))
                     .collect::<Result<HashMap<_, _>, _>>()?,
                 lru_limit,
-                Some(ValueSetting { index }),
+                Self::get_value_setting(index),
             )),
-            Value::LruSet(items, _, _) => Ok(Value::LruSet(items, lru_limit, Some(ValueSetting { index }))),
+            Value::LruSet(items, _, _) => Ok(Value::LruSet(items, lru_limit, Self::get_value_setting(index))),
             other => Err(SchemaResolutionError::new(format!(
                 "LruSet expected, got {:?}", other
             )).into()),
@@ -812,9 +811,9 @@ impl Value {
         match v {
             Some(value) => {
                 let value = value.resolve(schema)?;
-                Ok(Value::Optional(Some(Box::new(value)), Some(ValueSetting { index })))
-            },
-            None => Ok(Value::Optional(None, Some(ValueSetting { index })))
+                Ok(Value::Optional(Some(Box::new(value)), Self::get_value_setting(index)))
+            }
+            None => Ok(Value::Optional(None, Self::get_value_setting(index)))
         }
     }
 
@@ -852,7 +851,7 @@ impl Value {
                     Some(v) => v.json(),
                     None => JsonValue::Null,
                 }
-            },
+            }
         }
     }
 
@@ -869,6 +868,14 @@ impl Value {
                 format!("Unable to convert to u8, got {:?}", int)
             ).into()
         )
+    }
+
+    fn get_value_setting(index: bool) -> Option<ValueSetting> {
+        if !index {
+            None
+        } else {
+            Some(ValueSetting { index })
+        }
     }
 }
 
