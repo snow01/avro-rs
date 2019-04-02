@@ -45,6 +45,8 @@ pub trait MapHelper {
 
     fn bool(&self, key: &str) -> bool;
 
+    fn optional_bool(&self, key: &str) -> Option<bool>;
+
     fn name(&self) -> Option<String> {
         self.string("name")
     }
@@ -53,12 +55,12 @@ pub trait MapHelper {
         self.string("doc")
     }
 
-    fn allow_partial(&self) -> bool {
-        self.bool("allow_partial")
-    }
+//    fn allow_partial(&self) -> bool {
+//        self.bool("allow_partial")
+//    }
 
-    fn index(&self) -> bool {
-        self.bool("index")
+    fn index(&self) -> Option<bool> {
+        self.optional_bool("index")
     }
 }
 
@@ -74,6 +76,10 @@ impl MapHelper for Map<String, Value> {
             Some(val) => val,
             None => false
         }
+    }
+
+    fn optional_bool(&self, key: &str) -> Option<bool> {
+        self.get(key).and_then(|v| v.as_bool())
     }
 }
 

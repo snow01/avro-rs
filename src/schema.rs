@@ -12,9 +12,10 @@ use serde_json::{self, Map, Value as JsonValue};
 
 use crate::types::Value as AvroValue;
 use crate::util::MapHelper;
+use time::Duration;
 
 lazy_static! {
-    static ref LRU_LIMIT_REGEX:Regex = Regex::new("(?P<value>[[:digit:]]+)[[:space:]]*(?P<type>days|hour|minute|second)?$").unwrap();
+    static ref LRU_LIMIT_REGEX:Regex = Regex::new("(?P<value>[[:digit:]]+)[[:space:]]*(?P<type>days|hour|minute)[[:space:]]*(?:;[[:space:]]*(?P<count>[[:digit:]]+)[[:space:]]*)?$").unwrap();
 }
 
 /// Describes errors happened while parsing Avro schemas.
@@ -116,10 +117,9 @@ pub enum Schema {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum LruLimit {
-    Days(u16),
-    Hour(u16),
-    Minute(u16),
-    Count(u16),
+    Days(Duration, i32),
+    Hour(Duration, i32),
+    Minute(Duration, i32),
 }
 
 impl Serialize for LruLimit {
@@ -128,10 +128,9 @@ impl Serialize for LruLimit {
             S: Serializer,
     {
         match *self {
-            LruLimit::Days(limit) => serializer.serialize_str(&format!("{} days", limit)),
-            LruLimit::Hour(limit) => serializer.serialize_str(&format!("{} hour", limit)),
-            LruLimit::Minute(limit) => serializer.serialize_str(&format!("{} minute", limit)),
-            LruLimit::Count(limit) => serializer.serialize_str(&format!("{}", limit)),
+            LruLimit::Days(limit, count) => serializer.serialize_str(&format!("{} days;{}", limit.num_days(), count)),
+            LruLimit::Hour(limit, count) => serializer.serialize_str(&format!("{} hour;{}", limit.num_hours(), count)),
+            LruLimit::Minute(limit, count) => serializer.serialize_str(&format!("{} minute;{}", limit.num_minutes(), count)),
         }
     }
 }
@@ -235,7 +234,7 @@ pub struct Name {
     pub namespace: Option<String>,
     pub aliases: Option<Vec<String>>,
 
-    pub index: bool,
+    pub index: Option<bool>,
 }
 
 /// Represents documentation for complex Avro schemas.
@@ -249,7 +248,7 @@ impl Name {
             name: name.to_owned(),
             namespace: None,
             aliases: None,
-            index: false,
+            index: None,
         }
     }
 
@@ -322,7 +321,7 @@ pub struct RecordField {
     /// Position of the field in the list of `field` of its parent `Schema`
     pub position: usize,
 
-    pub index: bool,
+    pub index: Option<bool>,
 }
 
 /// Represents any valid order for a `field` in a `record` Avro schema.
@@ -637,14 +636,16 @@ impl Schema {
                     .ok_or_else(|| failure::err_msg(format!("Not a valid limit value for lru_set type: {}", v)))
                     .and_then(|caps| {
                         let value = caps.name("value").unwrap().as_str();
-                        let value = value.parse::<u16>()?;
+                        let value = value.parse::<i64>()?;
+
+                        let count = caps.name("count").map_or(Ok(0), |m| m.as_str().parse::<i32>())?;
 
                         caps.name("type")
-                            .map_or(Ok(LruLimit::Count(value)), |r| {
+                            .map_or(Err(failure::err_msg("No limit type provided")), |r| {
                                 match r.as_str() {
-                                    "days" => Ok(LruLimit::Days(value)),
-                                    "hour" => Ok(LruLimit::Hour(value)),
-                                    "minute" => Ok(LruLimit::Minute(value)),
+                                    "days" => Ok(LruLimit::Days(Duration::days(value), count)),
+                                    "hour" => Ok(LruLimit::Hour(Duration::hours(value), count)),
+                                    "minute" => Ok(LruLimit::Minute(Duration::minutes(value), count)),
                                     other => Err(failure::err_msg(format!("Not a valid limit value for lru_set type: {}", other))),
                                 }
                             })
@@ -733,6 +734,8 @@ impl Serialize for Schema {
                 }
                 map.serialize_entry("fields", fields)?;
 
+                map.serialize_entry("index", &name.index)?;
+
                 map.end()
             }
             Schema::Enum {
@@ -787,6 +790,8 @@ impl Serialize for RecordField {
         if let Some(ref default) = self.default {
             map.serialize_entry("default", default)?;
         }
+
+        map.serialize_entry("index", &self.index)?;
 
         map.end()
     }
@@ -997,7 +1002,7 @@ mod tests {
                     schema: Schema::Long,
                     order: RecordFieldOrder::Ascending,
                     position: 0,
-                    index: false,
+                    index: None,
                 },
                 RecordField {
                     name: "b".to_string(),
@@ -1006,7 +1011,7 @@ mod tests {
                     schema: Schema::String,
                     order: RecordFieldOrder::Ascending,
                     position: 1,
-                    index: false,
+                    index: None,
                 },
             ],
             lookup,

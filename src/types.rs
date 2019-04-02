@@ -552,7 +552,7 @@ impl Value {
             Value::Array(items, _) => Ok(Value::Bytes(
                 items
                     .into_iter()
-                    .map(Value::try_u8)
+                    .map(|v| v.try_u8(index))
                     .collect::<Result<Vec<_>, _>>()?,
                 Self::get_value_setting(index),
             )),
@@ -664,7 +664,7 @@ impl Value {
         }
     }
 
-    fn resolve_record(self, fields: &[RecordField], index: bool) -> Result<Self, Error> {
+    fn resolve_record(self, fields: &[RecordField], index: Option<bool>) -> Result<Self, Error> {
         let mut items = match self {
             Value::Map(items, _) => Ok(items),
             Value::Record(fields, _) => Ok(fields.into_iter().collect::<HashMap<_, _>>()),
@@ -677,31 +677,50 @@ impl Value {
         let new_fields = fields
             .iter()
             .map(|field| {
+                let field_index = field.index.map_or_else(|| index.map_or(false, |v| v), |v| v);
+
                 let value = match items.remove(&field.name) {
                     Some(value) => value,
                     None => match field.default {
                         Some(ref value) => match field.schema {
                             Schema::Enum { ref symbols, .. } => {
-                                value.clone().avro().resolve_enum(symbols, field.index)?
+                                value.clone().avro().resolve_enum(symbols, field_index)?
                             }
                             _ => value.clone().avro(),
                         },
-                        _ => {
-                            return Err(SchemaResolutionError::new(format!(
-                                "missing field {} in record",
-                                field.name
-                            )).into());
+                        None => match field.schema {
+                            Schema::Optional(_) => {
+                                Value::Optional(None, None)
+                            }
+                            Schema::Set => {
+                                Value::Set(HashSet::new(), None)
+                            }
+                            Schema::Map(_) => {
+                                Value::Map(HashMap::new(), None)
+                            }
+                            Schema::LruSet(ref limit) => {
+                                Value::LruSet(HashMap::new(), limit.clone(),None)
+                            }
+
+                            _ => {
+                                return Err(SchemaResolutionError::new(format!(
+                                    "missing field {} in record",
+                                    field.name
+                                )).into());
+                            }
                         }
                     },
                 };
 
                 // for partial fields put value as Value::Null, which is handled properly at encode and decode time
                 value
-                    .resolve_internal(&field.schema, field.index)
+                    .resolve_internal(&field.schema, field_index)
                     .map(|value| (field.name.clone(), value))
             }).collect::<Result<Vec<_>, _>>()?;
 
-        Ok(Value::Record(new_fields, Self::get_value_setting(index)))
+        let index = index.map(|i| ValueSetting{index: i});
+
+        Ok(Value::Record(new_fields, index))
     }
 
     // u64 to u64 is default
@@ -810,7 +829,7 @@ impl Value {
         // Find the first match in the reader schema.
         match v {
             Some(value) => {
-                let value = value.resolve(schema)?;
+                let value = value.resolve_internal(schema, index)?;
                 Ok(Value::Optional(Some(Box::new(value)), Self::get_value_setting(index)))
             }
             None => Ok(Value::Optional(None, Self::get_value_setting(index)))
@@ -855,8 +874,8 @@ impl Value {
         }
     }
 
-    fn try_u8(self) -> Result<u8, Error> {
-        let int = self.resolve(&Schema::Int)?;
+    fn try_u8(self, index: bool) -> Result<u8, Error> {
+        let int = self.resolve_internal(&Schema::Int, index)?;
         if let Value::Int(n, None) = int {
             if n >= 0 && n <= i32::from(u8::MAX) {
                 return Ok(n as u8);
@@ -999,7 +1018,7 @@ mod tests {
                     schema: Schema::Long,
                     order: RecordFieldOrder::Ascending,
                     position: 0,
-                    index: false,
+                    index: None,
                 },
                 RecordField {
                     name: "b".to_string(),
@@ -1008,7 +1027,7 @@ mod tests {
                     schema: Schema::String,
                     order: RecordFieldOrder::Ascending,
                     position: 1,
-                    index: false,
+                    index: None,
                 },
             ],
             lookup: HashMap::new(),
