@@ -113,6 +113,8 @@ pub enum Schema {
 
     // optional type
     Optional(Box<Schema>),
+
+    Counter,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -163,6 +165,7 @@ pub(crate) enum SchemaKind {
     Set,
     LruSet,
     Optional,
+    Counter,
 }
 
 impl<'a> From<&'a Schema> for SchemaKind {
@@ -188,6 +191,7 @@ impl<'a> From<&'a Schema> for SchemaKind {
             Schema::Set => SchemaKind::Set,
             Schema::LruSet(_) => SchemaKind::LruSet,
             Schema::Optional(_) => SchemaKind::Optional,
+            Schema::Counter => SchemaKind::Counter,
         }
     }
 }
@@ -214,6 +218,7 @@ impl<'a> From<&'a AvroValue> for SchemaKind {
             AvroValue::Set(_, _) => SchemaKind::Set,
             AvroValue::LruSet(_, _, _) => SchemaKind::LruSet,
             AvroValue::Optional(_, _) => SchemaKind::Optional,
+            AvroValue::Counter(_, _) => SchemaKind::Counter,
         }
     }
 }
@@ -484,6 +489,7 @@ impl Schema {
             "string" => Ok(Schema::String),
             "date" => Ok(Schema::Date),
             "set" => Ok(Schema::Set),
+            "counter" => Ok(Schema::Counter),
             other => Err(ParseSchemaError::new(format!("Unknown type: {}", other)).into()),
         }
     }
@@ -774,6 +780,7 @@ impl Serialize for Schema {
                 map.serialize_entry("value", &*inner.clone())?;
                 map.end()
             }
+            Schema::Counter => serializer.serialize_str("counter"),
         }
     }
 }

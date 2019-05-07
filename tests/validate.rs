@@ -12,30 +12,30 @@ use avro_rs::{from_avro_datum, to_avro_datum, Schema};
 lazy_static! {
     static ref SCHEMAS_TO_VALIDATE: Vec<(&'static str, Value)> = vec![
         (r#""null""#, Value::Null),
-        (r#""boolean""#, Value::Boolean(true)),
+        (r#""boolean""#, Value::Boolean(true, None)),
         (
             r#""string""#,
-            Value::String("adsfasdf09809dsf-=adsf".to_string())
+            Value::String("adsfasdf09809dsf-=adsf".to_string(), None)
         ),
         (
             r#""bytes""#,
-            Value::Bytes("12345abcd".to_string().into_bytes())
+            Value::Bytes("12345abcd".to_string().into_bytes(), None)
         ),
-        (r#""int""#, Value::Int(1234)),
-        (r#""long""#, Value::Long(1234)),
-        (r#""float""#, Value::Float(1234.0)),
-        (r#""double""#, Value::Double(1234.0)),
+        (r#""int""#, Value::Int(1234, None)),
+        (r#""long""#, Value::Long(1234, None)),
+        (r#""float""#, Value::Float(1234.0, None)),
+        (r#""double""#, Value::Double(1234.0, None)),
         (
             r#"{"type": "fixed", "name": "Test", "size": 1}"#,
-            Value::Fixed(1, vec!['B' as u8])
+            Value::Fixed(1, vec!['B' as u8], None)
         ),
         (
             r#"{"type": "enum", "name": "Test", "symbols": ["A", "B"]}"#,
-            Value::Enum(1, "B".to_string())
+            Value::Enum(1, "B".to_string(), None)
         ),
         (
             r#"{"type": "array", "items": "long"}"#,
-            Value::Array(vec![Value::Long(1), Value::Long(3), Value::Long(2)])
+            Value::Array(vec![Value::Long(1, None), Value::Long(3, None), Value::Long(2, None)], None)
         ),
         (r#"{"type": "map", "values": "long"}"#, {
             let mut map = HashMap::new();
@@ -46,11 +46,11 @@ lazy_static! {
         }),
         (
             r#"["string", "null", "long"]"#,
-            Value::Union(Box::new(Value::Null))
+            Value::Union(Box::new(Value::Null), None)
         ),
         (
             r#"{"type": "record", "name": "Test", "fields": [{"name": "f", "type": "long"}]}"#,
-            Value::Record(vec![("f".to_string(), Value::Long(1))])
+            Value::Record(vec![("f".to_string(), Value::Long(1, None))], None)
         )
     ];
     static ref BINARY_ENCODINGS: Vec<(i64, Vec<u8>)> = vec![
@@ -99,7 +99,7 @@ fn test_round_trip() {
 #[test]
 fn test_int_encoding() {
     for (number, expected) in BINARY_ENCODINGS.iter() {
-        let encoded = to_avro_datum(&Schema::Int, Value::Int(*number as i32)).unwrap();
+        let encoded = to_avro_datum(&Schema::Int, Value::Int(*number as i32, None)).unwrap();
         assert_eq!(&encoded, expected);
     }
 }
@@ -107,7 +107,7 @@ fn test_int_encoding() {
 #[test]
 fn test_long_encoding() {
     for (number, expected) in BINARY_ENCODINGS.iter() {
-        let encoded = to_avro_datum(&Schema::Long, Value::Long(*number)).unwrap();
+        let encoded = to_avro_datum(&Schema::Long, Value::Long(*number, None)).unwrap();
         assert_eq!(&encoded, expected);
     }
 }

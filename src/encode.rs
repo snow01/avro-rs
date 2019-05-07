@@ -134,6 +134,7 @@ pub fn encode_ref(value: &Value, schema: &Schema, buffer: &mut Vec<u8>) {
                 }
             }
         },
+        Value::Counter(i, _) => encode_long(*i, buffer),
     }
 }
 

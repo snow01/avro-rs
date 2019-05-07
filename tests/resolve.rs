@@ -24,18 +24,18 @@ lazy_static! {
     }
     "#;
     static ref RECORD_VALUE: Value = Value::Record(vec![
-        ("A".to_string(), Value::Int(1)),
-        ("B".to_string(), Value::Int(2)),
-        ("C".to_string(), Value::Int(3)),
-        ("D".to_string(), Value::Int(4)),
-        ("E".to_string(), Value::Int(5)),
-        ("F".to_string(), Value::Int(6)),
-        ("G".to_string(), Value::Int(7)),
-    ]);
+        ("A".to_string(), Value::Int(1, None)),
+        ("B".to_string(), Value::Int(2, None)),
+        ("C".to_string(), Value::Int(3, None)),
+        ("D".to_string(), Value::Int(4, None)),
+        ("E".to_string(), Value::Int(5, None)),
+        ("F".to_string(), Value::Int(6, None)),
+        ("G".to_string(), Value::Int(7, None)),
+    ], None);
     static ref DEFAULT_VALUES: Vec<(&'static str, &'static str, Value)> = vec![
         (r#""null""#, "null", Value::Null),
-        (r#""boolean""#, "true", Value::Boolean(true)),
-        (r#""string""#, r#""foo""#, Value::String("foo".to_string())),
+        (r#""boolean""#, "true", Value::Boolean(true, None)),
+        (r#""string""#, r#""foo""#, Value::String("foo".to_string(), None)),
         // (r#""bytes""#, r#""\u00FF\u00FF""#, Value::Bytes(vec![0xff, 0xff])),
     ];
 }
@@ -47,10 +47,10 @@ fn test_schema_promotion() {
     // Each value represents the expected decoded value when promoting a value previously encoded with a promotable schema
     let promotable_schemas = vec![r#""int""#, r#""long""#, r#""float""#, r#""double""#];
     let promotable_values = vec![
-        Value::Int(219),
-        Value::Long(219),
-        Value::Float(219.0),
-        Value::Double(219.0),
+        Value::Int(219, None),
+        Value::Long(219, None),
+        Value::Float(219.0, None),
+        Value::Double(219.0, None),
     ];
 
     for (i, writer_raw_schema) in promotable_schemas.iter().enumerate() {
@@ -88,7 +88,7 @@ fn test_unknown_symbol() {
         Schema::parse_str(r#"{"type": "enum", "name": "Test", "symbols": ["BAR", "BAZ"]}"#)
             .unwrap();
 
-    let original_value = Value::Enum(0, "FOO".to_string());
+    let original_value = Value::Enum(0, "FOO".to_string(), None);
 
     let encoded = to_avro_datum(&writer_schema, original_value).expect("failed to encode value");
 
@@ -128,7 +128,7 @@ fn test_default_value() {
         let decoded = from_avro_datum(&writer_schema, &mut cursor, Some(&reader_schema))
             .expect("failed to decode value");
 
-        let expected_value = Value::Record(vec![("H".to_string(), expected_default.clone())]);
+        let expected_value = Value::Record(vec![("H".to_string(), expected_default.clone())], None);
 
         assert_eq!(decoded, expected_value);
     }

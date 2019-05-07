@@ -10,6 +10,11 @@ use crate::util::{safe_len, zag_i32, zag_i64, DecodeError};
 use crate::schema::SchemaKind::LruSet;
 
 #[inline]
+fn decode_counter<R: Read>(reader: &mut R) -> Result<Value, Error> {
+    zag_i64(reader).map(|v| Value::Counter(v, None))
+}
+
+#[inline]
 fn decode_date<R: Read>(reader: &mut R) -> Result<Value, Error> {
     zag_i64(reader).map(|v| Value::Date(v, None))
 }
@@ -215,5 +220,6 @@ pub fn decode<R: Read>(schema: &Schema, reader: &mut R) -> Result<Value, Error> 
                 }
             }
         },
+        Schema::Counter => decode_counter(reader),
     }
 }

@@ -115,6 +115,9 @@ pub enum Value {
     LruSet(HashMap<String, LruValue>, LruLimit, Option<ValueSetting>),
 
     Optional(Option<Box<Value>>, Option<ValueSetting>),
+
+    /// A `counter` Avro value.
+    Counter(i64, Option<ValueSetting>),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -397,6 +400,8 @@ impl Value {
                 }
             }
 
+            (&Value::Counter(_, _), &Schema::Counter) => true,
+
             _ => false,
         }
     }
@@ -439,6 +444,7 @@ impl Value {
             Schema::Set => self.resolve_set(false),
             Schema::LruSet(ref lru_limit) => self.resolve_lru_set(lru_limit.clone(), false),
             Schema::Optional(ref inner) => self.resolve_optional(inner, false),
+            Schema::Counter => self.resolve_counter(false),
         }
     }
 
@@ -463,8 +469,8 @@ impl Value {
         match *schema {
             Schema::Null => self.resolve_null(),
             Schema::Boolean => self.resolve_boolean(index),
-            Schema::Int => self.resolve_int(false),
-            Schema::Long => self.resolve_long(false),
+            Schema::Int => self.resolve_int(index),
+            Schema::Long => self.resolve_long(index),
             Schema::Float => self.resolve_float(false),
             Schema::Double => self.resolve_double(false),
             Schema::Bytes => self.resolve_bytes(false),
@@ -480,6 +486,7 @@ impl Value {
             Schema::Set => self.resolve_set(index),
             Schema::LruSet(ref lru_limit) => self.resolve_lru_set(lru_limit.clone(), index),
             Schema::Optional(ref inner) => self.resolve_optional(inner, index),
+            Schema::Counter => self.resolve_counter(index),
         }
     }
 
@@ -836,6 +843,17 @@ impl Value {
         }
     }
 
+    fn resolve_counter(self, index: bool) -> Result<Self, Error> {
+        match self {
+            Value::Int(n, _) => Ok(Value::Counter(i64::from(n), Self::get_value_setting(index))),
+            Value::Long(n, _) => Ok(Value::Counter(n, Self::get_value_setting(index))),
+            Value::Counter(n, _) => Ok(Value::Counter(n, Self::get_value_setting(index))),
+            other => {
+                Err(SchemaResolutionError::new(format!("Long expected, got {:?}", other)).into())
+            }
+        }
+    }
+
     pub fn json(&self) -> JsonValue {
         match self {
             Value::Null => JsonValue::Null,
@@ -871,6 +889,7 @@ impl Value {
                     None => JsonValue::Null,
                 }
             }
+            Value::Counter(n, _) => json!(n)
         }
     }
 
