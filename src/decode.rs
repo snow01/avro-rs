@@ -11,7 +11,7 @@ use crate::schema::SchemaKind::LruSet;
 
 #[inline]
 fn decode_counter<R: Read>(reader: &mut R) -> Result<Value, Error> {
-    zag_i64(reader).map(|v| Value::Counter(v, 8, None))
+    zag_i64(reader).map(|v| Value::Counter(v, None, None))
 }
 
 #[inline]

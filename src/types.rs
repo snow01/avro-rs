@@ -117,7 +117,7 @@ pub enum Value {
     Optional(Option<Box<Value>>, Option<ValueSetting>),
 
     /// A `counter` Avro value.
-    Counter(i64, u8, Option<ValueSetting>),
+    Counter(i64, Option<u8>, Option<ValueSetting>),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -845,9 +845,9 @@ impl Value {
 
     fn resolve_counter(self, size: u8, index: bool) -> Result<Self, Error> {
         match self {
-            Value::Int(n, _) => Ok(Value::Counter(i64::from(n), size, Self::get_value_setting(index))),
-            Value::Long(n, _) => Ok(Value::Counter(n, size, Self::get_value_setting(index))),
-            Value::Counter(n, _, _) => Ok(Value::Counter(n, size, Self::get_value_setting(index))),
+            Value::Int(n, _) => Ok(Value::Counter(i64::from(n), Some(size), Self::get_value_setting(index))),
+            Value::Long(n, _) => Ok(Value::Counter(n, Some(size), Self::get_value_setting(index))),
+            Value::Counter(n, _, _) => Ok(Value::Counter(n, Some(size), Self::get_value_setting(index))),
             other => {
                 Err(SchemaResolutionError::new(format!("Long expected, got {:?}", other)).into())
             }
