@@ -117,7 +117,7 @@ pub enum Value {
     Optional(Option<Box<Value>>, Option<ValueSetting>),
 
     /// A `counter` Avro value.
-    Counter(i64, Option<ValueSetting>),
+    Counter(i64, u8, Option<ValueSetting>),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -400,7 +400,7 @@ impl Value {
                 }
             }
 
-            (&Value::Counter(_, _), &Schema::Counter) => true,
+            (&Value::Counter(_, _, _), &Schema::Counter(_)) => true,
 
             _ => false,
         }
@@ -444,7 +444,7 @@ impl Value {
             Schema::Set => self.resolve_set(false),
             Schema::LruSet(ref lru_limit) => self.resolve_lru_set(lru_limit.clone(), false),
             Schema::Optional(ref inner) => self.resolve_optional(inner, false),
-            Schema::Counter => self.resolve_counter(false),
+            Schema::Counter(ref size) => self.resolve_counter(*size, false),
         }
     }
 
@@ -486,7 +486,7 @@ impl Value {
             Schema::Set => self.resolve_set(index),
             Schema::LruSet(ref lru_limit) => self.resolve_lru_set(lru_limit.clone(), index),
             Schema::Optional(ref inner) => self.resolve_optional(inner, index),
-            Schema::Counter => self.resolve_counter(index),
+            Schema::Counter(ref size) => self.resolve_counter(*size, index),
         }
     }
 
@@ -843,11 +843,11 @@ impl Value {
         }
     }
 
-    fn resolve_counter(self, index: bool) -> Result<Self, Error> {
+    fn resolve_counter(self, size: u8, index: bool) -> Result<Self, Error> {
         match self {
-            Value::Int(n, _) => Ok(Value::Counter(i64::from(n), Self::get_value_setting(index))),
-            Value::Long(n, _) => Ok(Value::Counter(n, Self::get_value_setting(index))),
-            Value::Counter(n, _) => Ok(Value::Counter(n, Self::get_value_setting(index))),
+            Value::Int(n, _) => Ok(Value::Counter(i64::from(n), size, Self::get_value_setting(index))),
+            Value::Long(n, _) => Ok(Value::Counter(n, size, Self::get_value_setting(index))),
+            Value::Counter(n, _, _) => Ok(Value::Counter(n, size, Self::get_value_setting(index))),
             other => {
                 Err(SchemaResolutionError::new(format!("Long expected, got {:?}", other)).into())
             }
@@ -889,7 +889,7 @@ impl Value {
                     None => JsonValue::Null,
                 }
             }
-            Value::Counter(n, _) => json!(n)
+            Value::Counter(n, _, _) => json!(n)
         }
     }
 

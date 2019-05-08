@@ -9,10 +9,10 @@ use regex::Regex;
 use serde::Deserialize;
 use serde::ser::{Serialize, SerializeMap, Serializer, SerializeSeq};
 use serde_json::{self, Map, Value as JsonValue};
+use time::Duration;
 
 use crate::types::Value as AvroValue;
 use crate::util::MapHelper;
-use time::Duration;
 
 lazy_static! {
     static ref LRU_LIMIT_REGEX:Regex = Regex::new("(?P<value>[[:digit:]]+)[[:space:]]*(?P<type>days|hour|minute)[[:space:]]*(?:;[[:space:]]*(?P<count>[[:digit:]]+)[[:space:]]*)?$").unwrap();
@@ -114,7 +114,7 @@ pub enum Schema {
     // optional type
     Optional(Box<Schema>),
 
-    Counter,
+    Counter(u8),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -191,7 +191,7 @@ impl<'a> From<&'a Schema> for SchemaKind {
             Schema::Set => SchemaKind::Set,
             Schema::LruSet(_) => SchemaKind::LruSet,
             Schema::Optional(_) => SchemaKind::Optional,
-            Schema::Counter => SchemaKind::Counter,
+            Schema::Counter(_) => SchemaKind::Counter,
         }
     }
 }
@@ -218,7 +218,7 @@ impl<'a> From<&'a AvroValue> for SchemaKind {
             AvroValue::Set(_, _) => SchemaKind::Set,
             AvroValue::LruSet(_, _, _) => SchemaKind::LruSet,
             AvroValue::Optional(_, _) => SchemaKind::Optional,
-            AvroValue::Counter(_, _) => SchemaKind::Counter,
+            AvroValue::Counter(_, _, _) => SchemaKind::Counter,
         }
     }
 }
@@ -489,7 +489,6 @@ impl Schema {
             "string" => Ok(Schema::String),
             "date" => Ok(Schema::Date),
             "set" => Ok(Schema::Set),
-            "counter" => Ok(Schema::Counter),
             other => Err(ParseSchemaError::new(format!("Unknown type: {}", other)).into()),
         }
     }
@@ -509,6 +508,7 @@ impl Schema {
                 "fixed" => Schema::parse_fixed(complex),
                 "lru_set" => Schema::parse_lru_set(complex),
                 "optional" => Schema::parse_optional(complex),
+                "counter" => Schema::parse_counter(complex),
                 other => Schema::parse_primitive(other),
             },
             Some(&JsonValue::Object(ref data)) => Schema::parse_complex(data) /*match data.get("type") {
@@ -668,6 +668,19 @@ impl Schema {
             .and_then(|value| Schema::parse(value))
             .map(|schema| Schema::Optional(Box::new(schema)))
     }
+
+    fn parse_counter(complex: &Map<String, JsonValue>) -> Result<Self, Error> {
+        let size = complex
+            .get("size")
+            .and_then(|v| v.as_u64())
+            .unwrap_or_else(|| 8);
+
+        if size != 8 && size != 16 && size != 32 && size != 64 {
+            return Err(failure::err_msg("Invalid size for Counter, only allowed: 8, 16, 32, 64"));
+        }
+
+        Ok(Schema::Counter(size as u8))
+    }
 }
 
 impl<'de> Deserialize<'de> for Schema {
@@ -763,11 +776,7 @@ impl Serialize for Schema {
                 map.end()
             }
             Schema::Set => serializer.serialize_str("set"),
-            Schema::Date => {
-                let mut map = serializer.serialize_map(None)?;
-                map.serialize_entry("type", "date")?;
-                map.end()
-            }
+            Schema::Date => serializer.serialize_str("date"),
             Schema::LruSet(ref limit) => {
                 let mut map = serializer.serialize_map(None)?;
                 map.serialize_entry("type", "lru_set")?;
@@ -780,7 +789,12 @@ impl Serialize for Schema {
                 map.serialize_entry("value", &*inner.clone())?;
                 map.end()
             }
-            Schema::Counter => serializer.serialize_str("counter"),
+            Schema::Counter(ref size) => {
+                let mut map = serializer.serialize_map(Some(2))?;
+                map.serialize_entry("type", "counter")?;
+                map.serialize_entry("size", size)?;
+                map.end()
+            },
         }
     }
 }
