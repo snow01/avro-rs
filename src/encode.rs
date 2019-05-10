@@ -67,7 +67,7 @@ pub fn encode_ref(value: &Value, schema: &Schema, buffer: &mut Vec<u8>) {
         },
         Value::Array(items, _) => {
             if let Schema::Array(ref inner) = *schema {
-                if items.len() > 0 {
+                if !items.is_empty() {
                     encode_long(items.len() as i64, buffer);
                     for item in items.iter() {
                         encode_ref(item, inner, buffer);
@@ -78,7 +78,7 @@ pub fn encode_ref(value: &Value, schema: &Schema, buffer: &mut Vec<u8>) {
         },
         Value::Map(items, _) => {
             if let Schema::Map(ref inner) = *schema {
-                if items.len() > 0 {
+                if !items.is_empty() {
                     encode_long(items.len() as i64, buffer);
                     for (key, value) in items {
                         encode_bytes(key, buffer);
@@ -102,7 +102,7 @@ pub fn encode_ref(value: &Value, schema: &Schema, buffer: &mut Vec<u8>) {
 
         Value::Date(i, _) => encode_long(*i, buffer),
         Value::Set(items, _) => {
-            if items.len() > 0 {
+            if !items.is_empty() {
                 encode_long(items.len() as i64, buffer);
                 for item in items.iter() {
                     encode_bytes(item, buffer);
@@ -111,7 +111,7 @@ pub fn encode_ref(value: &Value, schema: &Schema, buffer: &mut Vec<u8>) {
             buffer.push(0u8);
         },
         Value::LruSet(items, _, _) => {
-            if items.len() > 0 {
+            if !items.is_empty() {
                 encode_long(items.len() as i64, buffer);
                 for (key, value) in items {
                     encode_bytes(key, buffer);

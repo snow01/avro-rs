@@ -324,7 +324,7 @@ impl ToAvro for JsonValue {
             JsonValue::Number(n) => Value::Long(n.as_u64().unwrap() as i64, None), // Not so great
             JsonValue::String(s) => Value::String(s, None),
             JsonValue::Array(items) => {
-                Value::Array(items.into_iter().map(|item| item.avro()).collect::<_>(), None)
+                Value::Array(items.into_iter().map(ToAvro::avro).collect::<_>(), None)
             }
             JsonValue::Object(items) => Value::Map(
                 items
@@ -738,18 +738,18 @@ impl Value {
             Value::Date(val, _) => Ok(Value::Date(val, Self::get_value_setting(index))),
             Value::String(val, _) => {
                 let dt = chrono::DateTime::parse_from_rfc3339(&val);
-                if !dt.is_err() {
+                if dt.is_ok() {
                     let epoch = dt.unwrap().timestamp_millis();
                     return Ok(Value::Date(epoch, Self::get_value_setting(index)));
                 }
 
                 let dt = chrono::DateTime::parse_from_rfc2822(&val);
-                if !dt.is_err() {
+                if dt.is_ok() {
                     let epoch = dt.unwrap().timestamp_millis();
                     return Ok(Value::Date(epoch, Self::get_value_setting(index)));
                 }
 
-                return Err(failure::err_msg(format!("Couldn't resolve string value {} to date", val)));
+                Err(failure::err_msg(format!("Couldn't resolve string value {} to date", val)))
             }
             other => Err(SchemaResolutionError::new(format!("Date expected, got {:?}", other)).into()),
         }
@@ -765,7 +765,7 @@ impl Value {
                             Value::String(s, _) => Ok(s),
                             other => Err(SchemaResolutionError::new(format!(
                                 "String expected, got {:?}", other
-                            )).into())
+                            )))
                         }
                     })
                     .collect::<Result<HashSet<_>, SchemaResolutionError>>()?,
@@ -868,20 +868,20 @@ impl Value {
             Value::Enum(_index, value, _) => JsonValue::String(value.to_owned()),
             Value::Union(value, _) => value.json(),
             Value::Array(items, _) => {
-                JsonValue::Array(items.into_iter().map(|item| item.json()).collect::<_>())
+                JsonValue::Array(items.iter().map(Value::json).collect::<_>())
             }
             Value::Map(items, _) => {
-                JsonValue::Object(items.into_iter().map(|(key, value)| (key.clone(), value.json())).collect::<_>())
+                JsonValue::Object(items.iter().map(|(key, value)| (key.clone(), value.json())).collect::<_>())
             }
             Value::Record(items, _) => {
                 JsonValue::Object(items.iter().map(|(key, value)| (key.clone(), value.json())).collect::<_>())
             }
             Value::Date(t, _) => json!(t),
             Value::Set(items, _) => {
-                JsonValue::Array(items.into_iter().map(|item| JsonValue::String(item.to_owned())).collect::<_>())
+                JsonValue::Array(items.iter().map(|item| JsonValue::String(item.to_owned())).collect::<_>())
             }
             Value::LruSet(items, _, _) => {
-                JsonValue::Object(items.into_iter().map(|(key, value)| (key.clone(), value.json())).collect::<_>())
+                JsonValue::Object(items.iter().map(|(key, value)| (key.clone(), value.json())).collect::<_>())
             }
             Value::Optional(value, _) => {
                 match value {

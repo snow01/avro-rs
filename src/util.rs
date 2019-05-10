@@ -67,19 +67,19 @@ pub trait MapHelper {
 impl MapHelper for Map<String, Value> {
     fn string(&self, key: &str) -> Option<String> {
         self.get(key)
-            .and_then(|v| v.as_str())
-            .map(|v| v.to_string())
+            .and_then(serde_json::Value::as_str)
+            .map(ToString::to_string)
     }
 
     fn bool(&self, key: &str) -> bool {
-        match self.get(key).and_then(|v| v.as_bool()) {
+        match self.get(key).and_then(serde_json::Value::as_bool) {
             Some(val) => val,
             None => false
         }
     }
 
     fn optional_bool(&self, key: &str) -> Option<bool> {
-        self.get(key).and_then(|v| v.as_bool())
+        self.get(key).and_then(serde_json::Value::as_bool)
     }
 }
 
@@ -88,7 +88,7 @@ pub fn read_long<R: Read>(reader: &mut R) -> Result<i64, Error> {
 }
 
 pub fn zig_i32(n: i32, buffer: &mut Vec<u8>) {
-    zig_i64(n as i64, buffer)
+    zig_i64(i64::from(n), buffer)
 }
 
 pub fn zig_i64(n: i64, buffer: &mut Vec<u8>) {

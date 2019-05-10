@@ -267,12 +267,12 @@ impl Name {
 
         let aliases: Option<Vec<String>> = complex
             .get("aliases")
-            .and_then(|aliases| aliases.as_array())
+            .and_then(JsonValue::as_array)
             .and_then(|aliases| {
                 aliases
                     .iter()
-                    .map(|alias| alias.as_str())
-                    .map(|alias| alias.map(|a| a.to_string()))
+                    .map(JsonValue::as_str)
+                    .map(|alias| alias.map(ToString::to_string))
                     .collect::<Option<_>>()
             });
 
@@ -295,7 +295,7 @@ impl Name {
             let namespace = self
                 .namespace
                 .as_ref()
-                .map(|s| s.as_ref())
+                .map(AsRef::as_ref)
                 .or(default_namespace);
 
             match namespace {
@@ -354,7 +354,7 @@ impl RecordField {
 
         let order = field
             .get("order")
-            .and_then(|order| order.as_str())
+            .and_then(JsonValue::as_str)
             .and_then(|order| match order {
                 "ascending" => Some(RecordFieldOrder::Ascending),
                 "descending" => Some(RecordFieldOrder::Descending),
@@ -530,12 +530,12 @@ impl Schema {
 
         let fields: Vec<RecordField> = complex
             .get("fields")
-            .and_then(|fields| fields.as_array())
+            .and_then(JsonValue::as_array)
             .ok_or_else(|| ParseSchemaError::new("No `fields` in record").into())
             .and_then(|fields| {
                 fields
                     .iter()
-                    .filter_map(|field| field.as_object())
+                    .filter_map(JsonValue::as_object)
                     .enumerate()
                     .map(|(position, field)| RecordField::parse(field, position))
                     .collect::<Result<_, _>>()
@@ -560,12 +560,12 @@ impl Schema {
 
         let symbols = complex
             .get("symbols")
-            .and_then(|v| v.as_array())
+            .and_then(JsonValue::as_array)
             .ok_or_else(|| ParseSchemaError::new("No `symbols` field in enum"))
             .and_then(|symbols| {
                 symbols
                     .iter()
-                    .map(|symbol| symbol.as_str().map(|s| s.to_string()))
+                    .map(|symbol| symbol.as_str().map(ToString::to_string))
                     .collect::<Option<_>>()
                     .ok_or_else(|| ParseSchemaError::new("Unable to parse `symbols` in enum"))
             })?;
@@ -614,7 +614,7 @@ impl Schema {
 
         let size = complex
             .get("size")
-            .and_then(|v| v.as_i64())
+            .and_then(JsonValue::as_i64)
             .ok_or_else(|| ParseSchemaError::new("No `size` in fixed"))?;
 
         Ok(Schema::Fixed {
@@ -629,8 +629,8 @@ impl Schema {
         complex
             .get("limit")
             .ok_or_else(|| ParseSchemaError::new("No `limit` specified for lru_set").into())
-            .and_then(|limit| Schema::parse_lru_limit(limit))
-            .map(|lru_limit| Schema::LruSet(lru_limit))
+            .and_then(Schema::parse_lru_limit)
+            .map(Schema::LruSet)
     }
 
     fn parse_lru_limit(v: &JsonValue) -> Result<LruLimit, Error> {
@@ -672,7 +672,7 @@ impl Schema {
     fn parse_counter(complex: &Map<String, JsonValue>) -> Result<Self, Error> {
         let size = complex
             .get("size")
-            .and_then(|v| v.as_u64())
+            .and_then(JsonValue::as_u64)
             .unwrap_or_else(|| 8);
 
         if size != 8 && size != 16 && size != 32 && size != 64 {
@@ -713,13 +713,13 @@ impl<'de> Deserialize<'de> for Schema {
         where
             D: serde::Deserializer<'de>,
     {
-        return JsonValue::deserialize(deserializer)
+        JsonValue::deserialize(deserializer)
             .and_then(|value| {
                 Schema::parse(&value)
                     .map_err(|e| {
                         serde::de::Error::custom(format!("Error in parsing Spec json ({}) ==> {}", value, e))
                     })
-            });
+            })
     }
 }
 
@@ -855,7 +855,7 @@ fn parsing_canonical_form(schema: &JsonValue) -> String {
 
 fn pcf_map(schema: &Map<String, serde_json::Value>) -> String {
     // Look for the namespace variant up front.
-    let ns = schema.get("namespace").and_then(|v| v.as_str());
+    let ns = schema.get("namespace").and_then(JsonValue::as_str);
     let mut fields = Vec::new();
     for (k, v) in schema {
         // Reduce primitive types to their simple form. ([PRIMITIVE] rule)
