@@ -381,15 +381,15 @@ impl Value {
                 )
             }
 
-            (&Value::Date(ref value, _), &Schema::Date) => {
+            (&Value::Date(ref _value, _), &Schema::Date) => {
                 // if value can be represented as u4, then it's a valid Date
                 true
             }
-            (&Value::Set(ref items, _), &Schema::Set) => {
+            (&Value::Set(ref _items, _), &Schema::Set) => {
                 // if value could be represented as typed HashSet of String, then no further validations are required.
                 true
             }
-            (&Value::LruSet(ref items, _, _), &Schema::LruSet(ref lru_limit)) => {
+            (&Value::LruSet(ref _items, _, _), &Schema::LruSet(ref _lru_limit)) => {
                 // if value could be represented as typed HashMap of String and LruValue, then no further validations are required.
                 true
             }
@@ -864,8 +864,8 @@ impl Value {
             Value::Double(n, _) => json!(n),
             Value::Bytes(b, _) => json!(b),
             Value::String(s, _) => JsonValue::String(s.to_owned()),
-            Value::Fixed(size, data, _) => json!(data),
-            Value::Enum(index, value, _) => JsonValue::String(value.to_owned()),
+            Value::Fixed(_size, data, _) => json!(data),
+            Value::Enum(_index, value, _) => JsonValue::String(value.to_owned()),
             Value::Union(value, _) => value.json(),
             Value::Array(items, _) => {
                 JsonValue::Array(items.into_iter().map(|item| item.json()).collect::<_>())

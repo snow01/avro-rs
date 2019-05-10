@@ -7,7 +7,6 @@ use failure::Error;
 use crate::schema::Schema;
 use crate::types::{Value, LruValue};
 use crate::util::{safe_len, zag_i32, zag_i64, DecodeError};
-use crate::schema::SchemaKind::LruSet;
 
 #[inline]
 fn decode_counter<R: Read>(reader: &mut R) -> Result<Value, Error> {

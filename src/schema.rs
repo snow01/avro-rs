@@ -348,7 +348,7 @@ impl RecordField {
         let schema = field
             .get("type")
             .ok_or_else(|| ParseSchemaError::new("No `type` in record field").into())
-            .and_then(|type_| Schema::parse_complex(field))?;
+            .and_then(|_type| Schema::parse_complex(field))?;
 
         let default = field.get("default").cloned();
 
@@ -680,6 +680,30 @@ impl Schema {
         }
 
         Ok(Schema::Counter(size as u8))
+    }
+
+    pub fn get_type(&self) -> String {
+        match self {
+            Schema::Null => String::from("null"),
+            Schema::Boolean => String::from("bool"),
+            Schema::Int => String::from("int"),
+            Schema::Long => String::from("long"),
+            Schema::Float => String::from("float"),
+            Schema::Double => String::from("double"),
+            Schema::Bytes => String::from("bytes"),
+            Schema::String => String::from("string"),
+            Schema::Array(_) => String::from("array"),
+            Schema::Map(_) => String::from("map"),
+            Schema::Union(_) => String::from("union"),
+            Schema::Record { .. } => String::from("record"),
+            Schema::Enum { .. } => String::from("enum"),
+            Schema::Fixed { .. } => String::from("fixed"),
+            Schema::Date => String::from("date"),
+            Schema::Set => String::from("set"),
+            Schema::LruSet(_) => String::from("lru_set"),
+            Schema::Optional(_) => String::from("optional"),
+            Schema::Counter(_) => String::from("counter"),
+        }
     }
 }
 
