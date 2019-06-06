@@ -134,7 +134,7 @@ impl LruValue {
         }
     }
 
-    fn json(&self) -> JsonValue {
+    pub fn json(&self) -> JsonValue {
         let mut map: serde_json::Map<String, JsonValue> = serde_json::Map::new();
         map.insert(ACCESS_TIME.to_owned(), json!(self.access_time));
         map.insert(COUNT.to_owned(), json!(self.count));
