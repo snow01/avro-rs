@@ -8,7 +8,7 @@ use failure::Error;
 use serde_json::Value as JsonValue;
 
 use crate::LruLimit;
-use crate::schema::{RecordField, Schema, SchemaKind, UnionSchema};
+use crate::schema::{RecordField, Schema, SchemaKind, UnionSchema, DateIndexKind};
 
 const ACCESS_TIME: &str = "access_time";
 const COUNT: &str = "count";
@@ -384,7 +384,7 @@ impl Value {
                 )
             }
 
-            (&Value::Date(ref _value, _), &Schema::Date) => {
+            (&Value::Date(ref _value, _), &Schema::Date(_)) => {
                 // if value can be represented as u4, then it's a valid Date
                 true
             }
@@ -446,7 +446,7 @@ impl Value {
             Schema::Map(ref inner) => self.resolve_map(inner, false),
             Schema::Record { ref name, ref fields, .. } => self.resolve_record(fields, name.index),
 
-            Schema::Date => self.resolve_datetime(false),
+            Schema::Date(ref index_kind) => self.resolve_datetime(false, index_kind),
             Schema::Set => self.resolve_set(false),
             Schema::LruSet(ref lru_limit) => self.resolve_lru_set(lru_limit.clone(), false),
             Schema::Optional(ref inner) => self.resolve_optional(inner, false),
@@ -489,7 +489,7 @@ impl Value {
             Schema::Map(ref inner) => self.resolve_map(inner, index),
             Schema::Record { ref name, ref fields, .. } => self.resolve_record(fields, name.index),
 
-            Schema::Date => self.resolve_datetime(index),
+            Schema::Date(ref index_kind) => self.resolve_datetime(index, index_kind),
             Schema::Set => self.resolve_set(index),
             Schema::LruSet(ref lru_limit) => self.resolve_lru_set(lru_limit.clone(), index),
             Schema::Optional(ref inner) => self.resolve_optional(inner, index),
@@ -740,7 +740,7 @@ impl Value {
 
     // u64 to u64 is default
     // string to u64 is through well defined patterns
-    fn resolve_datetime(self, index: bool) -> Result<Self, Error> {
+    fn resolve_datetime(self, index: bool, index_kind: &Option<DateIndexKind>) -> Result<Self, Error> {
         match self {
             Value::Long(val, _) => Ok(Value::Date(val, Self::get_value_setting(index))),
             Value::Date(val, _) => Ok(Value::Date(val, Self::get_value_setting(index))),

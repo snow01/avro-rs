@@ -156,7 +156,7 @@ pub fn decode<R: Read>(schema: &Schema, reader: &mut R) -> Result<Value, Error> 
                 Err(DecodeError::new("enum symbol not found").into())
             }
         },
-        Schema::Date => decode_date(reader),
+        Schema::Date(_) => decode_date(reader),
         Schema::Set => {
             let mut items: HashSet<String> = HashSet::new();
 

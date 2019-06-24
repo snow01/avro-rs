@@ -104,7 +104,7 @@ pub enum Schema {
     /// A `fixed` Avro schema.
     Fixed { name: Name, size: usize },
 
-    Date,
+    Date(Option<DateIndexKind>),
 
     Set,
 
@@ -117,6 +117,14 @@ pub enum Schema {
     Counter,
 
     Max(Box<Schema>)
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum DateIndexKind {
+    Day,
+    Hour,
+    Minute,
+    Second
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -190,7 +198,7 @@ impl<'a> From<&'a Schema> for SchemaKind {
             Schema::Record { .. } => SchemaKind::Record,
             Schema::Enum { .. } => SchemaKind::Enum,
             Schema::Fixed { .. } => SchemaKind::Fixed,
-            Schema::Date => SchemaKind::Date,
+            Schema::Date(_) => SchemaKind::Date,
             Schema::Set => SchemaKind::Set,
             Schema::LruSet(_) => SchemaKind::LruSet,
             Schema::Optional(_) => SchemaKind::Optional,
@@ -492,7 +500,6 @@ impl Schema {
             "float" => Ok(Schema::Float),
             "bytes" => Ok(Schema::Bytes),
             "string" => Ok(Schema::String),
-            "date" => Ok(Schema::Date),
             "set" => Ok(Schema::Set),
             "counter" => Ok(Schema::Counter),
             other => Err(ParseSchemaError::new(format!("Unknown type: {}", other)).into()),
@@ -512,6 +519,7 @@ impl Schema {
                 "array" => Schema::parse_array(complex),
                 "map" => Schema::parse_map(complex),
                 "fixed" => Schema::parse_fixed(complex),
+                "date" => Schema::parse_date(complex),
                 "lru_set" => Schema::parse_lru_set(complex),
                 "optional" => Schema::parse_optional(complex),
                 "max" => Schema::parse_max(complex),
@@ -631,6 +639,49 @@ impl Schema {
 
     /// Parse a `serde_json::Value` representing a Avro array type into a
     /// `Schema`.
+    fn parse_date(complex: &Map<String, JsonValue>) -> Result<Self, Error> {
+        match complex.get("index_kind") {
+            Some(v) => {
+                let v = v.as_str().ok_or_else(|| failure::err_msg(format!("Not a valid index_kind value for date type: {}", v)))?;
+
+                let kind = match v {
+                    "day" => Ok(DateIndexKind::Day),
+                    "hour" => Ok(DateIndexKind::Hour),
+                    "minute" => Ok(DateIndexKind::Minute),
+                    "second" => Ok(DateIndexKind::Second),
+                    _ => {
+                        Err(failure::err_msg(format!("Not a valid index_kind value for date type: {}. Allowed values: day, hour, minute, second", v)))
+                    }
+                }?;
+
+                Ok(Schema::Date(Some(kind)))
+            },
+            None => Ok(Schema::Date(None))
+        }
+
+//        complex
+//            .get("index_kind")
+//            .map(|v| {
+//                v
+//                    .as_str()
+//                    .ok_or_else(|| failure::err_msg(format!("Not a valid index_kind value for date type: {}", v)))
+//                    .and_then(|r| {
+//                        match r {
+//                            "day" => Ok(Some(DateIndexKind::Day)),
+//                            "hour" => Ok(Some(DateIndexKind::Hour)),
+//                            "minute" => Ok(Some(DateIndexKind::Minute)),
+//                            "second" => Ok(Some(DateIndexKind::Second)),
+//                            _ => {
+//                                Err(failure::err_msg(format!("Not a valid index_kind value for date type: {}. Allowed values: day, hour, minute, second", r)))
+//                            }
+//                        }
+//                    })?
+//            })
+//            .map(|v| Ok(Schema::Date(v)))
+    }
+
+    /// Parse a `serde_json::Value` representing a Avro array type into a
+    /// `Schema`.
     fn parse_lru_set(complex: &Map<String, JsonValue>) -> Result<Self, Error> {
         complex
             .get("limit")
@@ -683,19 +734,6 @@ impl Schema {
             .map(|schema| Schema::Max(Box::new(schema)))
     }
 
-//    fn parse_max(complex: &Map<String, JsonValue>) -> Result<Self, Error> {
-//        let size = complex
-//            .get("size")
-//            .and_then(JsonValue::as_u64)
-//            .unwrap_or_else(|| 8);
-//
-//        if size != 8 && size != 16 && size != 32 && size != 64 {
-//            return Err(failure::err_msg("Invalid size for Counter, only allowed: 8, 16, 32, 64"));
-//        }
-//
-//        Ok(Schema::Counter(size as u8))
-//    }
-
     pub fn get_type(&self) -> String {
         match self {
             Schema::Null => String::from("null"),
@@ -712,7 +750,7 @@ impl Schema {
             Schema::Record { .. } => String::from("record"),
             Schema::Enum { .. } => String::from("enum"),
             Schema::Fixed { .. } => String::from("fixed"),
-            Schema::Date => String::from("date"),
+            Schema::Date(_) => String::from("date"),
             Schema::Set => String::from("set"),
             Schema::LruSet(_) => String::from("lru_set"),
             Schema::Optional(_) => String::from("optional"),
@@ -802,23 +840,41 @@ impl Serialize for Schema {
                 ref symbols,
                 ..
             } => {
-                let mut map = serializer.serialize_map(None)?;
+                let mut map = serializer.serialize_map(Some(3))?;
                 map.serialize_entry("type", "enum")?;
                 map.serialize_entry("name", &name.name)?;
                 map.serialize_entry("symbols", symbols)?;
                 map.end()
             }
             Schema::Fixed { ref name, ref size } => {
-                let mut map = serializer.serialize_map(None)?;
+                let mut map = serializer.serialize_map(Some(3))?;
                 map.serialize_entry("type", "fixed")?;
                 map.serialize_entry("name", &name.name)?;
                 map.serialize_entry("size", size)?;
                 map.end()
             }
             Schema::Set => serializer.serialize_str("set"),
-            Schema::Date => serializer.serialize_str("date"),
+            Schema::Date(ref index_kind) => {
+                match index_kind {
+                    Some(index_kind) => {
+                        let mut map = serializer.serialize_map(Some(2))?;
+                        map.serialize_entry("type", "date")?;
+
+                        let index_kind = match index_kind {
+                            DateIndexKind::Day => "day",
+                            DateIndexKind::Hour => "hour",
+                            DateIndexKind::Minute => "minute",
+                            DateIndexKind::Second => "second",
+                        };
+
+                        map.serialize_entry("index_kind", index_kind)?;
+                        map.end()
+                    },
+                    None => serializer.serialize_str("date"),
+                }
+            }
             Schema::LruSet(ref limit) => {
-                let mut map = serializer.serialize_map(None)?;
+                let mut map = serializer.serialize_map(Some(2))?;
                 map.serialize_entry("type", "lru_set")?;
                 map.serialize_entry("limit", limit)?;
                 map.end()
