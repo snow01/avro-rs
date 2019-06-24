@@ -10,7 +10,7 @@ use crate::util::{safe_len, zag_i32, zag_i64, DecodeError};
 
 #[inline]
 fn decode_counter<R: Read>(reader: &mut R) -> Result<Value, Error> {
-    zag_i64(reader).map(|v| Value::Counter(v, None, None))
+    zag_i64(reader).map(|v| Value::Counter(v, None))
 }
 
 #[inline]
@@ -219,6 +219,9 @@ pub fn decode<R: Read>(schema: &Schema, reader: &mut R) -> Result<Value, Error> 
                 }
             }
         },
-        Schema::Counter(_) => decode_counter(reader),
+        Schema::Counter => decode_counter(reader),
+        Schema::Max(ref inner) => {
+            decode(inner, reader).map(|x| Value::Max(Box::new(x), None))
+        }
     }
 }

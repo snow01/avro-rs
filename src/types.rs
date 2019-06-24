@@ -117,7 +117,10 @@ pub enum Value {
     Optional(Option<Box<Value>>, Option<ValueSetting>),
 
     /// A `counter` Avro value.
-    Counter(i64, Option<u8>, Option<ValueSetting>),
+    Counter(i64, Option<ValueSetting>),
+
+    /// A max avro value.
+    Max(Box<Value>, Option<ValueSetting>),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -399,8 +402,11 @@ impl Value {
                     None => true
                 }
             }
+            (&Value::Max(ref value, _), &Schema::Max(ref inner)) => {
+                value.validate(inner)
+            }
 
-            (&Value::Counter(_, _, _), &Schema::Counter(_)) => true,
+            (&Value::Counter(_, _), &Schema::Counter) => true,
 
             _ => false,
         }
@@ -444,7 +450,8 @@ impl Value {
             Schema::Set => self.resolve_set(false),
             Schema::LruSet(ref lru_limit) => self.resolve_lru_set(lru_limit.clone(), false),
             Schema::Optional(ref inner) => self.resolve_optional(inner, false),
-            Schema::Counter(ref size) => self.resolve_counter(*size, false),
+            Schema::Max(ref inner) => self.resolve_max(inner, false),
+            Schema::Counter => self.resolve_counter(false),
         }
     }
 
@@ -486,7 +493,8 @@ impl Value {
             Schema::Set => self.resolve_set(index),
             Schema::LruSet(ref lru_limit) => self.resolve_lru_set(lru_limit.clone(), index),
             Schema::Optional(ref inner) => self.resolve_optional(inner, index),
-            Schema::Counter(ref size) => self.resolve_counter(*size, index),
+            Schema::Counter => self.resolve_counter(index),
+            Schema::Max(ref inner) => self.resolve_max(inner, index),
         }
     }
 
@@ -779,7 +787,7 @@ impl Value {
     }
 
     fn resolve_lru_value(self) -> Result<LruValue, Error> {
-        let resolved = self.resolve_internal(&LRU_VALUE_SCHEMA, false)?;
+        let resolved = self.resolve_internal(&*LRU_VALUE_SCHEMA, false)?;
 
         match resolved {
             Value::Record(fields, _) => {
@@ -843,11 +851,23 @@ impl Value {
         }
     }
 
-    fn resolve_counter(self, size: u8, index: bool) -> Result<Self, Error> {
+    fn resolve_max(self, schema: &Schema, index: bool) -> Result<Self, Error> {
+        let v = match self {
+            // Both are unions case.
+            Value::Max(v, _) => *v,
+            // Reader is a max, but writer is not.
+            v => v,
+        };
+        let value = v.resolve_internal(schema, index)?;
+
+        Ok(Value::Max(Box::new(value), Self::get_value_setting(index)))
+    }
+
+    fn resolve_counter(self, index: bool) -> Result<Self, Error> {
         match self {
-            Value::Int(n, _) => Ok(Value::Counter(i64::from(n), Some(size), Self::get_value_setting(index))),
-            Value::Long(n, _) => Ok(Value::Counter(n, Some(size), Self::get_value_setting(index))),
-            Value::Counter(n, _, _) => Ok(Value::Counter(n, Some(size), Self::get_value_setting(index))),
+            Value::Int(n, _) => Ok(Value::Counter(i64::from(n), Self::get_value_setting(index))),
+            Value::Long(n, _) => Ok(Value::Counter(n, Self::get_value_setting(index))),
+            Value::Counter(n, _) => Ok(Value::Counter(n, Self::get_value_setting(index))),
             other => {
                 Err(SchemaResolutionError::new(format!("Long expected, got {:?}", other)).into())
             }
@@ -889,7 +909,8 @@ impl Value {
                     None => JsonValue::Null,
                 }
             }
-            Value::Counter(n, _, _) => json!(n)
+            Value::Max(value, _) => value.json(),
+            Value::Counter(n, _) => json!(n)
         }
     }
 

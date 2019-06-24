@@ -114,7 +114,9 @@ pub enum Schema {
     // optional type
     Optional(Box<Schema>),
 
-    Counter(u8),
+    Counter,
+
+    Max(Box<Schema>)
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -166,6 +168,7 @@ pub(crate) enum SchemaKind {
     LruSet,
     Optional,
     Counter,
+    Max
 }
 
 impl<'a> From<&'a Schema> for SchemaKind {
@@ -191,7 +194,8 @@ impl<'a> From<&'a Schema> for SchemaKind {
             Schema::Set => SchemaKind::Set,
             Schema::LruSet(_) => SchemaKind::LruSet,
             Schema::Optional(_) => SchemaKind::Optional,
-            Schema::Counter(_) => SchemaKind::Counter,
+            Schema::Counter => SchemaKind::Counter,
+            Schema::Max(_) => SchemaKind::Max,
         }
     }
 }
@@ -218,7 +222,8 @@ impl<'a> From<&'a AvroValue> for SchemaKind {
             AvroValue::Set(_, _) => SchemaKind::Set,
             AvroValue::LruSet(_, _, _) => SchemaKind::LruSet,
             AvroValue::Optional(_, _) => SchemaKind::Optional,
-            AvroValue::Counter(_, _, _) => SchemaKind::Counter,
+            AvroValue::Counter(_, _) => SchemaKind::Counter,
+            AvroValue::Max(_, _) => SchemaKind::Max,
         }
     }
 }
@@ -489,6 +494,7 @@ impl Schema {
             "string" => Ok(Schema::String),
             "date" => Ok(Schema::Date),
             "set" => Ok(Schema::Set),
+            "counter" => Ok(Schema::Counter),
             other => Err(ParseSchemaError::new(format!("Unknown type: {}", other)).into()),
         }
     }
@@ -508,7 +514,7 @@ impl Schema {
                 "fixed" => Schema::parse_fixed(complex),
                 "lru_set" => Schema::parse_lru_set(complex),
                 "optional" => Schema::parse_optional(complex),
-                "counter" => Schema::parse_counter(complex),
+                "max" => Schema::parse_max(complex),
                 other => Schema::parse_primitive(other),
             },
             Some(&JsonValue::Object(ref data)) => Schema::parse_complex(data) /*match data.get("type") {
@@ -669,18 +675,26 @@ impl Schema {
             .map(|schema| Schema::Optional(Box::new(schema)))
     }
 
-    fn parse_counter(complex: &Map<String, JsonValue>) -> Result<Self, Error> {
-        let size = complex
-            .get("size")
-            .and_then(JsonValue::as_u64)
-            .unwrap_or_else(|| 8);
-
-        if size != 8 && size != 16 && size != 32 && size != 64 {
-            return Err(failure::err_msg("Invalid size for Counter, only allowed: 8, 16, 32, 64"));
-        }
-
-        Ok(Schema::Counter(size as u8))
+    fn parse_max(complex: &Map<String, JsonValue>) -> Result<Self, Error> {
+        complex
+            .get("value")
+            .ok_or_else(|| ParseSchemaError::new("No `value` defined for max").into())
+            .and_then(|value| Schema::parse(value))
+            .map(|schema| Schema::Max(Box::new(schema)))
     }
+
+//    fn parse_max(complex: &Map<String, JsonValue>) -> Result<Self, Error> {
+//        let size = complex
+//            .get("size")
+//            .and_then(JsonValue::as_u64)
+//            .unwrap_or_else(|| 8);
+//
+//        if size != 8 && size != 16 && size != 32 && size != 64 {
+//            return Err(failure::err_msg("Invalid size for Counter, only allowed: 8, 16, 32, 64"));
+//        }
+//
+//        Ok(Schema::Counter(size as u8))
+//    }
 
     pub fn get_type(&self) -> String {
         match self {
@@ -702,7 +716,8 @@ impl Schema {
             Schema::Set => String::from("set"),
             Schema::LruSet(_) => String::from("lru_set"),
             Schema::Optional(_) => String::from("optional"),
-            Schema::Counter(_) => String::from("counter"),
+            Schema::Counter => String::from("counter"),
+            Schema::Max(_) => String::from("max"),
         }
     }
 }
@@ -737,6 +752,7 @@ impl Serialize for Schema {
             Schema::Double => serializer.serialize_str("double"),
             Schema::Bytes => serializer.serialize_str("bytes"),
             Schema::String => serializer.serialize_str("string"),
+            Schema::Counter => serializer.serialize_str("counter"),
             Schema::Array(ref inner) => {
                 let mut map = serializer.serialize_map(Some(2))?;
                 map.serialize_entry("type", "array")?;
@@ -813,12 +829,12 @@ impl Serialize for Schema {
                 map.serialize_entry("value", &*inner.clone())?;
                 map.end()
             }
-            Schema::Counter(ref size) => {
+            Schema::Max(ref inner) => {
                 let mut map = serializer.serialize_map(Some(2))?;
-                map.serialize_entry("type", "counter")?;
-                map.serialize_entry("size", size)?;
+                map.serialize_entry("type", "max")?;
+                map.serialize_entry("value", &*inner.clone())?;
                 map.end()
-            },
+            }
         }
     }
 }
