@@ -554,114 +554,296 @@ mod tests {
             "index": true,
             "type": "record",
             "fields": [
-              {
-                "name": "lang",
-                "type": "optional",
-                "value": "string"
-              },
-              {
-                "name": "city",
-                "type": "optional",
-                "value": "string"
-              },
-              {
-                "name": "state",
-                "type": "optional",
-                "value": "string"
-              },
-              {
-                "name": "followed_location",
-                "type": "set"
-              },
-              {
-                "name": "followed_np",
-                "type": "map",
-                "values": {
-                  "type": "enum",
-                  "name": "status",
-                  "symbols": ["FOLLOW", "BLOCK", "UNFOLLOW"]
-                }
-              },
-              {
-                "name": "followed_channel",
-                "type": "set"
-              },
-              {
-                "name": "segment",
-                "type": "set"
-              },
-              {
-                "name": "gender",
-                "type": "optional",
-                "value": "string"
-              },
-              {
-                "name": "age_years",
-                "type": "optional",
-                "value": "int"
-              },
-              {
-                "name": "dob",
-                "type": "optional",
-                "value": "date"
-              },
-              {
-                "name": "sun_sign",
-                "type": "optional",
-                "value": "string"
-              },
-              {
-                "name": "moon_sign",
-                "type": "optional",
-                "value": "string"
-              },
-              {
-                "name": "activation_date",
-                "type": "optional",
-                "value": "date"
-              },
-              {
-                "name": "last_delivery_date",
-                "type": "optional",
-                "value": "date"
-              },
-              {
-                "name": "last_access_date",
-                "type": "optional",
-                "value": "date"
-              },
-              {
-                "name": "last_open_date",
-                "type": "optional",
-                "value": "date"
-              },
-              {
-                "name": "user_type",
-                "type": "optional",
-                "value": "string"
-              },
-              {
-               "name": "followed_np",
-               "type": {
-                 "type": "map",
-                 "values": {
-                   "type": "enum",
-                   "name": "status",
-                   "symbols": [
-                     "FOLLOW",
-                     "BLOCK",
-                     "UNFOLLOW"
-                   ]
-                 }
-               }
-             }
-            ]
+                  {
+                    "name": "lang",
+                    "type": "optional",
+                    "value": "string"
+                  },
+                  {
+                    "name": "city",
+                    "type": "optional",
+                    "value": "string"
+                  },
+                  {
+                    "name": "state",
+                    "type": "optional",
+                    "value": "string"
+                  },
+                  {
+                    "name": "followed_location",
+                    "type": "map",
+                    "values": {
+                      "type": "enum",
+                      "name": "loc_status",
+                      "symbols": [
+                        "FOLLOW",
+                        "BLOCK",
+                        "UNFOLLOW"
+                      ]
+                    }
+                  },
+                  {
+                    "name": "followed_np",
+                    "type": "map",
+                    "values": {
+                      "type": "enum",
+                      "name": "np_status",
+                      "symbols": [
+                        "FOLLOW",
+                        "BLOCK",
+                        "UNFOLLOW"
+                      ]
+                    }
+                  },
+                  {
+                    "name": "followed_channel",
+                    "type": "map",
+                    "values": {
+                      "type": "enum",
+                      "name": "channel_status",
+                      "symbols": [
+                        "FOLLOW",
+                        "BLOCK",
+                        "UNFOLLOW"
+                      ]
+                    }
+                  },
+                  {
+                    "name": "followed_topic",
+                    "type": "map",
+                    "values": {
+                      "type": "enum",
+                      "name": "topic_status",
+                      "symbols": [
+                        "FOLLOW",
+                        "BLOCK",
+                        "UNFOLLOW"
+                      ]
+                    }
+                  },
+                  {
+                    "name": "segment",
+                    "type" : "optional",
+                    "value": {
+                      "type" : "array",
+                      "items" : "string"
+                    }
+                  },
+                  {
+                    "name": "gender",
+                    "type": "optional",
+                    "value": "string"
+                  },
+                  {
+                    "name": "age_years",
+                    "type": "optional",
+                    "value": "int"
+                  },
+                  {
+                    "name": "dob",
+                    "type": "optional",
+                    "value": {
+                      "type": "date"
+                    }
+                  },
+                  {
+                    "name": "sun_sign",
+                    "type": "optional",
+                    "value": "string"
+                  },
+                  {
+                    "name": "moon_sign",
+                    "type": "optional",
+                    "value": "string"
+                  },
+                  {
+                    "name": "activation_date",
+                    "type": "optional",
+                    "value": {
+                      "type": "date"
+                    }
+                  },
+                  {
+                    "name": "last_delivery_date",
+                    "type": "optional",
+                    "value": {
+                      "type": "date"
+                    }
+                  },
+                  {
+                    "name": "last_access_date",
+                    "type": "optional",
+                    "value": {
+                      "type": "date"
+                    }
+                  },
+                  {
+                    "name": "last_pv_date",
+                    "type": "optional",
+                    "value": {
+                      "type": "date"
+                    }
+                  },
+                  {
+                    "name": "last_open_date",
+                    "type": "optional",
+                    "value": {
+                      "type": "date"
+                    }
+                  },
+                  {
+                    "name": "user_type",
+                    "type": "optional",
+                    "value": "string"
+                  },
+                  {
+                    "name": "is_dormant",
+                    "type": "optional",
+                    "value": "string"
+                  },
+                  {
+                    "name": "is_enabled",
+                    "type": "optional",
+                    "value": "string"
+                  },
+                  {
+                    "name": "dnd_set",
+                    "type": "optional",
+                    "value": {
+                      "type": "set"
+                    }
+                  },
+                  {
+                    "name": "consumption_location",
+                    "type": {
+                      "type": "array",
+                      "items": "string"
+                    }
+                  },
+                  {
+                    "name": "pv_by_group_type",
+                    "type": "map",
+                    "values": {
+                      "type": "long",
+                      "name": "count"
+                    }
+                  },
+                  {
+                    "name": "last_pv_date_by_group_type",
+                    "type": "map",
+                    "values": {
+                      "type": "date",
+                      "name": "last_pv_date"
+                    }
+                  },
+                  {
+                    "name": "like_by_group_type",
+                    "type": "map",
+                    "values": {
+                      "type": "long",
+                      "name": "count"
+                    }
+                  },
+                  {
+                    "name": "share_by_group_type",
+                    "type": "map",
+                    "values": {
+                      "type": "long",
+                      "name": "count"
+                    }
+                  },
+                  {
+                    "name": "bounce_engagement_by_group_type",
+                    "type": "map",
+                    "values": {
+                      "type": "long",
+                      "name": "count"
+                    }
+                  },
+                  {
+                    "name": "shallow_engagement_by_group_type",
+                    "type": "map",
+                    "values": {
+                      "type": "long",
+                      "name": "count"
+                    }
+                  },
+                  {
+                    "name": "deep_engagement_by_group_type",
+                    "type": "map",
+                    "values": {
+                      "type": "long",
+                      "name": "count"
+                    }
+                  },
+                  {
+                    "name": "complete_engagement_by_group_type",
+                    "type": "map",
+                    "values": {
+                      "type": "long",
+                      "name": "count"
+                    }
+                  },
+                  {
+                    "name": "response_streak_by_scenario_key",
+                    "type": "map",
+                    "values": {
+                      "type": "counter",
+                      "name": "count"
+                    }
+                  },
+                  {
+                    "name": "non_response_streak_by_scenario_key",
+                    "type": "map",
+                    "values": {
+                      "type": "counter",
+                      "name": "count"
+                    }
+                  },
+                  {
+                    "name": "last_response_time_by_scenario_key",
+                    "type": "map",
+                    "values": {
+                      "type": "date",
+                      "name": "last_response_time"
+                    }
+                  },
+                  {
+                    "name": "last_delivery_time_by_scenario_key",
+                    "type": "map",
+                    "values": {
+                      "type": "date",
+                      "name": "last_delivery_time"
+                    }
+                  },
+                  {
+                    "name": "delivery_count_by_scenario_key",
+                    "type": "map",
+                    "values": {
+                      "type": "counter",
+                      "name": "count"
+                    }
+                  },
+                  {
+                    "name": "response_count_by_scenario_key",
+                    "type": "map",
+                    "values": {
+                      "type": "counter",
+                      "name": "count"
+                    }
+                  }
+                ]
           }
         "#;
 
         let writer_schema = Schema::parse_str(schema).unwrap();
         println!("Schema: {:?}", writer_schema);
 
+        let ser_schema = serde_json::to_string(&writer_schema).unwrap();
+        println!("{}", ser_schema);
+
+        let reparsed_schema = Schema::parse_str(&ser_schema).unwrap();
+        println!("Reparsed Schema: {:?}", reparsed_schema);
     }
 
     //TODO: move where it fits better

@@ -116,7 +116,7 @@ pub enum Schema {
 
     Counter,
 
-    Max(Box<Schema>)
+    Max(Box<Schema>),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -124,7 +124,7 @@ pub enum DateIndexKind {
     Day,
     Hour,
     Minute,
-    Second
+    Second,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -176,7 +176,7 @@ pub(crate) enum SchemaKind {
     LruSet,
     Optional,
     Counter,
-    Max
+    Max,
 }
 
 impl<'a> From<&'a Schema> for SchemaKind {
@@ -531,7 +531,7 @@ impl Schema {
                     ParseSchemaError::new(format!("Unknown complex type: {:?}", complex)).into(),
                 ),
             }*/,
-            _ => Err(ParseSchemaError::new("No `type` in complex type").into()),
+            _ => Err(ParseSchemaError::new(format!("No `type` in complex type: {:?}", complex).to_string()).into()),
         }
     }
 
@@ -655,29 +655,9 @@ impl Schema {
                 }?;
 
                 Ok(Schema::Date(Some(kind)))
-            },
+            }
             None => Ok(Schema::Date(None))
         }
-
-//        complex
-//            .get("index_kind")
-//            .map(|v| {
-//                v
-//                    .as_str()
-//                    .ok_or_else(|| failure::err_msg(format!("Not a valid index_kind value for date type: {}", v)))
-//                    .and_then(|r| {
-//                        match r {
-//                            "day" => Ok(Some(DateIndexKind::Day)),
-//                            "hour" => Ok(Some(DateIndexKind::Hour)),
-//                            "minute" => Ok(Some(DateIndexKind::Minute)),
-//                            "second" => Ok(Some(DateIndexKind::Second)),
-//                            _ => {
-//                                Err(failure::err_msg(format!("Not a valid index_kind value for date type: {}. Allowed values: day, hour, minute, second", r)))
-//                            }
-//                        }
-//                    })?
-//            })
-//            .map(|v| Ok(Schema::Date(v)))
     }
 
     /// Parse a `serde_json::Value` representing a Avro array type into a
@@ -855,23 +835,21 @@ impl Serialize for Schema {
             }
             Schema::Set => serializer.serialize_str("set"),
             Schema::Date(ref index_kind) => {
-                match index_kind {
-                    Some(index_kind) => {
-                        let mut map = serializer.serialize_map(Some(2))?;
-                        map.serialize_entry("type", "date")?;
+                let mut map = serializer.serialize_map(Some(2))?;
+                map.serialize_entry("type", "date")?;
 
-                        let index_kind = match index_kind {
-                            DateIndexKind::Day => "day",
-                            DateIndexKind::Hour => "hour",
-                            DateIndexKind::Minute => "minute",
-                            DateIndexKind::Second => "second",
-                        };
+                if let Some(index_kind) = index_kind {
+                    let index_kind_str = match index_kind {
+                        DateIndexKind::Day => "day",
+                        DateIndexKind::Hour => "hour",
+                        DateIndexKind::Minute => "minute",
+                        DateIndexKind::Second => "second",
+                    };
 
-                        map.serialize_entry("index_kind", index_kind)?;
-                        map.end()
-                    },
-                    None => serializer.serialize_str("date"),
+                    map.serialize_entry("index_kind", index_kind_str)?;
                 }
+
+                map.end()
             }
             Schema::LruSet(ref limit) => {
                 let mut map = serializer.serialize_map(Some(2))?;
