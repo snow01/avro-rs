@@ -710,7 +710,16 @@ impl Schema {
         complex
             .get("value")
             .ok_or_else(|| ParseSchemaError::new("No `value` defined for max").into())
-            .and_then(|value| Schema::parse(value))
+            .and_then(|value| {
+                let value = Schema::parse(value)?;
+                let kind = SchemaKind::from(&value);
+
+                if let SchemaKind::Int | SchemaKind::Long | SchemaKind::Float | SchemaKind::Date = kind {
+                    Ok(value)
+                } else {
+                    Err(ParseSchemaError::new("Either of int, long, float, or date is allowed for max").into())
+                }
+            })
             .map(|schema| Schema::Max(Box::new(schema)))
     }
 

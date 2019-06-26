@@ -42,9 +42,31 @@ impl SchemaResolutionError {
     }
 }
 
+pub trait Indexable {
+    fn index(&self) -> bool;
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct ValueSetting {
     pub index: bool
+}
+
+impl Indexable for ValueSetting {
+    fn index(&self) -> bool {
+        self.index
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct DateValueSetting {
+    pub index: bool,
+    pub index_kind: DateIndexKind
+}
+
+impl Indexable for DateValueSetting {
+    fn index(&self) -> bool {
+        self.index
+    }
 }
 
 /// Represents any valid Avro value
@@ -106,7 +128,7 @@ pub enum Value {
     Record(Vec<(String, Value)>, Option<ValueSetting>),
 
     // date is serialized as millis since epoch
-    Date(i64, Option<ValueSetting>),
+    Date(i64, Option<DateValueSetting>),
 
     // hashset of values
     Set(HashSet<String>, Option<ValueSetting>),
@@ -742,19 +764,19 @@ impl Value {
     // string to u64 is through well defined patterns
     fn resolve_datetime(self, index: bool, index_kind: &Option<DateIndexKind>) -> Result<Self, Error> {
         match self {
-            Value::Long(val, _) => Ok(Value::Date(val, Self::get_value_setting(index))),
-            Value::Date(val, _) => Ok(Value::Date(val, Self::get_value_setting(index))),
+            Value::Long(val, _) => Ok(Value::Date(val, Self::get_date_value_setting(index, index_kind))),
+            Value::Date(val, _) => Ok(Value::Date(val, Self::get_date_value_setting(index, index_kind))),
             Value::String(val, _) => {
                 let dt = chrono::DateTime::parse_from_rfc3339(&val);
                 if dt.is_ok() {
                     let epoch = dt.unwrap().timestamp_millis();
-                    return Ok(Value::Date(epoch, Self::get_value_setting(index)));
+                    return Ok(Value::Date(epoch, Self::get_date_value_setting(index, index_kind)));
                 }
 
                 let dt = chrono::DateTime::parse_from_rfc2822(&val);
                 if dt.is_ok() {
                     let epoch = dt.unwrap().timestamp_millis();
-                    return Ok(Value::Date(epoch, Self::get_value_setting(index)));
+                    return Ok(Value::Date(epoch, Self::get_date_value_setting(index, index_kind)));
                 }
 
                 Err(failure::err_msg(format!("Couldn't resolve string value {} to date", val)))
@@ -934,6 +956,17 @@ impl Value {
             None
         } else {
             Some(ValueSetting { index })
+        }
+    }
+
+    fn get_date_value_setting(index: bool, index_kind: &Option<DateIndexKind>) -> Option<DateValueSetting> {
+        match index_kind {
+            Some(index_kind) => {
+                Some(DateValueSetting {index, index_kind: index_kind.clone()})
+            },
+            None => {
+                Some(DateValueSetting {index, index_kind: DateIndexKind::Day})
+            }
         }
     }
 }
