@@ -502,6 +502,7 @@ impl Schema {
             "string" => Ok(Schema::String),
             "set" => Ok(Schema::Set),
             "counter" => Ok(Schema::Counter),
+            "date" => Ok(Schema::Date(None)),
             other => Err(ParseSchemaError::new(format!("Unknown type: {}", other)).into()),
         }
     }
@@ -820,7 +821,9 @@ impl Serialize for Schema {
                 }
                 map.serialize_entry("fields", fields)?;
 
-                map.serialize_entry("index", &name.index)?;
+                if let Some(ref index) = name.index {
+                    map.serialize_entry("index", &index)?;
+                }
 
                 map.end()
             }
@@ -844,21 +847,26 @@ impl Serialize for Schema {
             }
             Schema::Set => serializer.serialize_str("set"),
             Schema::Date(ref index_kind) => {
-                let mut map = serializer.serialize_map(Some(2))?;
-                map.serialize_entry("type", "date")?;
+                match index_kind {
+                    Some(index_kind) => {
+                        let mut map = serializer.serialize_map(Some(2))?;
+                        map.serialize_entry("type", "date")?;
 
-                if let Some(index_kind) = index_kind {
-                    let index_kind_str = match index_kind {
-                        DateIndexKind::Day => "day",
-                        DateIndexKind::Hour => "hour",
-                        DateIndexKind::Minute => "minute",
-                        DateIndexKind::Second => "second",
-                    };
+                        let index_kind_str = match index_kind {
+                            DateIndexKind::Day => "day",
+                            DateIndexKind::Hour => "hour",
+                            DateIndexKind::Minute => "minute",
+                            DateIndexKind::Second => "second",
+                        };
 
-                    map.serialize_entry("index_kind", index_kind_str)?;
+                        map.serialize_entry("index_kind", index_kind_str)?;
+
+                        map.end()
+                    }
+                    None => {
+                        serializer.serialize_str("date")
+                    }
                 }
-
-                map.end()
             }
             Schema::LruSet(ref limit) => {
                 let mut map = serializer.serialize_map(Some(2))?;
@@ -895,7 +903,9 @@ impl Serialize for RecordField {
             map.serialize_entry("default", default)?;
         }
 
-        map.serialize_entry("index", &self.index)?;
+        if let Some(ref index) = self.index {
+            map.serialize_entry("index", &index)?;
+        }
 
         map.end()
     }
