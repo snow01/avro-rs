@@ -20,8 +20,8 @@ lazy_static! {
                 "type": "record",
                 "name": "lru_value",
                 "fields": [
-                    {"access_time": "a", "type": "long", "default": 0},
-                    {"count": "b", "type": "long", "default": 0}
+                    {"name": "access_time", "type": "long", "default": 0},
+                    {"name": "count", "type": "long", "default": 0}
                 ]
             }
         "#,
