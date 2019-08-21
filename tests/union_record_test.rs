@@ -42,7 +42,7 @@ const FULL_IMAGE_ONLY_SCHEMA: &str = r#"
 "#;
 
 const PARTIAL_READ_SCHEMA: &str = r#"
-{"name":"new_type","type":"record",
+{"name":"new_type","type":"record","index":true,
 "fields":[
 {"name":"asset_source","type":"string"},
 {"name":"asset_type","type":[

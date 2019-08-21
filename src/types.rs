@@ -525,7 +525,7 @@ impl Value {
             Schema::Enum { ref symbols, .. } => self.resolve_enum(symbols, index),
             Schema::Array(ref inner) => self.resolve_array(inner, index),
             Schema::Map(ref inner) => self.resolve_map(inner, index),
-            Schema::Record { ref name, ref fields, .. } => self.resolve_record(fields, name.index),
+            Schema::Record { ref name, ref fields, .. } => self.resolve_record(fields, name.index.or(Some(index))),
 
             Schema::Date(ref index_kind) => self.resolve_datetime(index, index_kind),
             Schema::Set => self.resolve_set(index),
@@ -533,7 +533,7 @@ impl Value {
             Schema::Optional(ref inner) => self.resolve_optional(inner, index),
             Schema::Counter => self.resolve_counter(index),
             Schema::Max(ref inner) => self.resolve_max(inner, index),
-            Schema::UnionRecord(ref inner) => self.resolve_union_record(inner,false)
+            Schema::UnionRecord(ref inner) => self.resolve_union_record(inner,index)
         }
     }
 
