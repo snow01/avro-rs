@@ -527,6 +527,7 @@ mod util;
 mod writer;
 
 pub mod schema;
+mod schema_test;
 pub mod types;
 
 pub use crate::codec::Codec;
