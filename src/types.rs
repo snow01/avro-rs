@@ -525,7 +525,7 @@ impl Value {
             Schema::Enum { ref symbols, .. } => self.resolve_enum(symbols, index),
             Schema::Array(ref inner) => self.resolve_array(inner, index),
             Schema::Map(ref inner) => self.resolve_map(inner, index),
-            Schema::Record { ref name, ref fields, .. } => self.resolve_record(fields, name.index.or(Some(index))),
+            Schema::Record { ref name, ref fields, .. } => self.resolve_record(fields, name.index.or_else(||Some(index))),
 
             Schema::Date(ref index_kind) => self.resolve_datetime(index, index_kind),
             Schema::Set => self.resolve_set(index),
@@ -543,7 +543,8 @@ impl Value {
                 let (_, inner) = schema
                     .find_schema_by_type(&t)
                     .ok_or_else(|| SchemaResolutionError::new("Could not find matching type in UnionRecord"))?;
-                v.resolve_internal(inner, index)
+                let value = v.resolve_internal(inner, index)?;
+                Ok(Value::UnionRecord(Box::new(value),t,None))
             },
             Value::Map(mut map,_) =>{
                 if let Some(t) = map.remove("_type"){
@@ -563,7 +564,8 @@ impl Value {
                 .find_schema_by_type(&t)
                 .ok_or_else(|| SchemaResolutionError::new("Could not find matching type in UnionRecord"))?;
             let value = Value::Map(map, None);
-            value.resolve(inner)
+            let value = value.resolve(inner)?;
+            Ok(Value::UnionRecord(Box::new(value),t,None))
         } else {
             Err(SchemaResolutionError::new("No _type field found to resolve map ").into())
         }
