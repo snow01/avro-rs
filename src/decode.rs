@@ -3,8 +3,7 @@ use std::io::Read;
 use std::mem::transmute;
 
 use failure::Error;
-
-use crate::schema::Schema;
+use crate::schema::{Schema, UnionRecordSchema};
 use crate::types::{Value, LruValue};
 use crate::util::{safe_len, zag_i32, zag_i64, DecodeError};
 
@@ -223,5 +222,22 @@ pub fn decode<R: Read>(schema: &Schema, reader: &mut R) -> Result<Value, Error> 
         Schema::Max(ref inner) => {
             decode(inner, reader).map(|x| Value::Max(Box::new(x), None))
         }
+        Schema::UnionRecord(ref inner) => decode_union_record(reader, inner)
+    }
+}
+
+fn decode_union_record<R: Read>(reader: &mut R, inner: &UnionRecordSchema) -> Result<Value, Error> {
+    let index = zag_i64(reader)?;
+    let variants = inner.variants();
+    match variants.get(index as usize) {
+        Some(variant) => {
+            if let Schema::Record { name, .. } =  variant {
+                let name = name.name.clone();
+                decode(variant, reader).map(|x| Value::UnionRecord(Box::new(x), name, None))
+            }else{
+                Err(DecodeError::new("only record types are allowed inside UnionRecord").into())
+            }
+        },
+        None => Err(DecodeError::new("UnionRecord index out of bounds").into()),
     }
 }

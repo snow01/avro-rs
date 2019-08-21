@@ -140,6 +140,17 @@ pub fn encode_ref(value: &Value, schema: &Schema, buffer: &mut Vec<u8>) {
                 encode_ref(&*value, inner, buffer);
             }
         }
+        Value::UnionRecord(item,tp, _) => {
+            if let Schema::UnionRecord(ref inner) = *schema {
+                // Find the schema that is matched here. Due to validation, this should always
+                // return a value.
+                let (idx, inner_schema) = inner
+                    .find_schema_by_type(tp)
+                    .expect("Invalid Union record validation occurred");
+                encode_long(idx as i64, buffer); // encode index
+                encode_ref(&*item, inner_schema, buffer);
+            }
+        }
     }
 }
 
