@@ -543,7 +543,8 @@ impl Value {
                 let (_, inner) = schema
                     .find_schema_by_type(&t)
                     .ok_or_else(|| SchemaResolutionError::new("Could not find matching type in UnionRecord"))?;
-                v.resolve_internal(inner, index)
+                let value = v.resolve_internal(inner, index)?;
+                Ok(Value::UnionRecord(Box::new(value),t,None))
             },
             Value::Map(mut map,_) =>{
                 if let Some(t) = map.remove("_type"){
@@ -563,7 +564,8 @@ impl Value {
                 .find_schema_by_type(&t)
                 .ok_or_else(|| SchemaResolutionError::new("Could not find matching type in UnionRecord"))?;
             let value = Value::Map(map, None);
-            value.resolve(inner)
+            let value = value.resolve(inner)?;
+            Ok(Value::UnionRecord(Box::new(value),t,None))
         } else {
             Err(SchemaResolutionError::new("No _type field found to resolve map ").into())
         }
