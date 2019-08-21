@@ -85,6 +85,8 @@ pub enum Schema {
     Map(Box<Schema>),
     /// A `union` Avro schema.
     Union(UnionSchema),
+
+    UnionRecord(UnionRecordSchema),
     /// A `record` Avro schema.
     ///
     /// The `lookup` table maps field names to their position in the `Vec`
@@ -169,6 +171,7 @@ pub(crate) enum SchemaKind {
     Map,
     Union,
     Record,
+    UnionRecord,
     Enum,
     Fixed,
     Date,
@@ -204,6 +207,7 @@ impl<'a> From<&'a Schema> for SchemaKind {
             Schema::Optional(_) => SchemaKind::Optional,
             Schema::Counter => SchemaKind::Counter,
             Schema::Max(_) => SchemaKind::Max,
+            Schema::UnionRecord(_) => SchemaKind::UnionRecord,
         }
     }
 }
@@ -232,6 +236,7 @@ impl<'a> From<&'a AvroValue> for SchemaKind {
             AvroValue::Optional(_, _) => SchemaKind::Optional,
             AvroValue::Counter(_, _) => SchemaKind::Counter,
             AvroValue::Max(_, _) => SchemaKind::Max,
+            AvroValue::UnionRecord(_,_, _) => SchemaKind::UnionRecord,
         }
     }
 }
@@ -447,6 +452,65 @@ impl PartialEq for UnionSchema {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct UnionRecordSchema {
+    //_type: Option<String>, // Not needed
+    /// schema type to index mapping
+    schemas_by_type: HashMap<String, usize>,
+    /// schema_by_index
+    schemas: Vec<Schema>,
+}
+
+impl UnionRecordSchema {
+    pub(crate) fn new(schemas: Vec<Schema>) -> Result<Self, Error> {
+        let mut schemas_by_type = HashMap::new();
+        for (i, schema) in schemas.iter().enumerate() {
+            if let Schema::Record { name, .. } = schema {
+                if schemas_by_type.insert(name.name.clone(), i).is_some() {
+                    Err(ParseSchemaError::new(
+                        "UnionRecord cannot contain record schema with duplicate name",
+                    ))?;
+                }
+            } else {
+                Err(ParseSchemaError::new(
+                    "Complex Unions are only supported for record type",
+                ))?;
+            }
+        }
+        Ok(UnionRecordSchema {
+            schemas_by_type,
+            schemas,
+        })
+    }
+
+    /// Returns a slice to all variants of this schema.
+    pub fn variants(&self) -> &[Schema] {
+        &self.schemas
+    }
+
+    pub fn type_indexes(&self) -> &HashMap<String, usize> {
+        &self.schemas_by_type
+    }
+
+    /// Returns true if the first variant of this `UnionSchema` is `Null`.
+    pub fn is_nullable(&self) -> bool {
+        !self.schemas.is_empty() && self.schemas[0] == Schema::Null
+    }
+
+    pub fn find_schema_by_type(&self, value: &str) -> Option<(usize, &Schema)> {
+        self.schemas_by_type
+            .get(value)
+            .cloned()
+            .map(|i| (i, &self.schemas[i]))
+    }
+}
+
+impl PartialEq for UnionRecordSchema {
+    fn eq(&self, other: &UnionRecordSchema) -> bool {
+        self.schemas.eq(&other.schemas)
+    }
+}
+
 impl Schema {
     /// Create a `Schema` from a string representing a JSON Avro schema.
     pub fn parse_str(input: &str) -> Result<Self, Error> {
@@ -532,6 +596,7 @@ impl Schema {
                     ParseSchemaError::new(format!("Unknown complex type: {:?}", complex)).into(),
                 ),
             }*/,
+            Some(&JsonValue::Array(ref data)) => Schema::parse_union_record(data),
             _ => Err(ParseSchemaError::new(format!("No `type` in complex type: {:?}", complex).to_string()).into()),
         }
     }
@@ -621,6 +686,17 @@ impl Schema {
             .collect::<Result<Vec<_>, _>>()
             .and_then(|schemas| Ok(Schema::Union(UnionSchema::new(schemas)?)))
     }
+
+    /// Parse a `serde_json::Value` representing a Avro union type into a
+    /// `Schema`.
+    fn parse_union_record(items: &[JsonValue]) -> Result<Self, Error> {
+        items
+            .iter()
+            .map(Schema::parse)
+            .collect::<Result<Vec<_>, _>>()
+            .and_then(|schemas| Ok(Schema::UnionRecord(UnionRecordSchema::new(schemas)?)))
+    }
+
 
     /// Parse a `serde_json::Value` representing a Avro fixed type into a
     /// `Schema`.
@@ -746,6 +822,7 @@ impl Schema {
             Schema::Optional(_) => String::from("optional"),
             Schema::Counter => String::from("counter"),
             Schema::Max(_) => String::from("max"),
+            Schema::UnionRecord(_) => String::from("union_record")
         }
     }
 }
@@ -886,6 +963,14 @@ impl Serialize for Schema {
                 map.serialize_entry("value", &*inner.clone())?;
                 map.end()
             }
+            Schema::UnionRecord(ref inner) => {
+                let variants = inner.variants();
+                let mut seq = serializer.serialize_seq(Some(variants.len()))?;
+                for v in variants {
+                    seq.serialize_element(v)?;
+                }
+                seq.end()
+            },
         }
     }
 }

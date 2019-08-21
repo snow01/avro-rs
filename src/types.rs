@@ -8,7 +8,8 @@ use failure::Error;
 use serde_json::Value as JsonValue;
 
 use crate::LruLimit;
-use crate::schema::{RecordField, Schema, SchemaKind, UnionSchema, DateIndexKind};
+use crate::schema::{RecordField, Schema, SchemaKind, UnionSchema, DateIndexKind, UnionRecordSchema};
+use std::ops::Deref;
 
 const ACCESS_TIME: &str = "access_time";
 const COUNT: &str = "count";
@@ -112,6 +113,8 @@ pub enum Value {
 
     /// An `union` Avro value.
     Union(Box<Value>, Option<ValueSetting>),
+
+    UnionRecord(Box<Value>, String, Option<ValueSetting>),
 
     /// An `array` Avro value.
     Array(Vec<Value>, Option<ValueSetting>),
@@ -391,6 +394,17 @@ impl Value {
             (&Value::Union(ref value, _), &Schema::Union(ref inner)) => {
                 inner.find_schema(value).is_some()
             }
+            (&Value::UnionRecord(ref value,ref t, _), &Schema::UnionRecord(ref inner)) => {
+                if let Value::Record(_,_) = value.deref() {
+                    if let Some((_,schema)) = inner.find_schema_by_type(t){
+                        value.validate(schema)
+                    }else{
+                        false
+                    }
+                }else{
+                    false
+                }
+            }
             (&Value::Array(ref items, _), &Schema::Array(ref inner)) => {
                 items.iter().all(|item| item.validate(inner))
             }
@@ -474,6 +488,8 @@ impl Value {
             Schema::Optional(ref inner) => self.resolve_optional(inner, false),
             Schema::Max(ref inner) => self.resolve_max(inner, false),
             Schema::Counter => self.resolve_counter(false),
+            // Todo(FIXME ::(sohan) pending union record) - would it come to this ?
+            Schema::UnionRecord(ref inner) => self.resolve_union_record(inner,false)
         }
     }
 
@@ -517,6 +533,39 @@ impl Value {
             Schema::Optional(ref inner) => self.resolve_optional(inner, index),
             Schema::Counter => self.resolve_counter(index),
             Schema::Max(ref inner) => self.resolve_max(inner, index),
+            Schema::UnionRecord(ref inner) => self.resolve_union_record(inner,false)
+        }
+    }
+
+    fn resolve_union_record(self, schema: &UnionRecordSchema, index: bool) -> Result<Self, Error> {
+        match self {
+            Value::UnionRecord(v,t, _) => {
+                let (_, inner) = schema
+                    .find_schema_by_type(&t)
+                    .ok_or_else(|| SchemaResolutionError::new("Could not find matching type in UnionRecord"))?;
+                v.resolve_internal(inner, index)
+            },
+            Value::Map(mut map,_) =>{
+                if let Some(t) = map.remove("_type"){
+                    Value::resolve_map_for_union_record(schema, map, t)
+                }else{
+                    Err(SchemaResolutionError::new("No _type field found to resolve map").into())
+                }
+
+            }
+            other=>  Err(SchemaResolutionError::new(format!("UnionRecord expected, got {:?}", other)).into())
+        }
+    }
+
+    fn resolve_map_for_union_record(schema: &UnionRecordSchema, map: HashMap<String, Value>, t: Value) -> Result<Value, Error> {
+        if let Value::String(t, _) = t {
+            let (_, inner) = schema
+                .find_schema_by_type(&t)
+                .ok_or_else(|| SchemaResolutionError::new("Could not find matching type in UnionRecord"))?;
+            let value = Value::Map(map, None);
+            value.resolve(inner)
+        } else {
+            Err(SchemaResolutionError::new("No _type field found to resolve map ").into())
         }
     }
 
@@ -932,7 +981,8 @@ impl Value {
                 }
             }
             Value::Max(value, _) => value.json(),
-            Value::Counter(n, _) => json!(n)
+            Value::Counter(n, _) => json!(n),
+            Value::UnionRecord(value,_, _) => value.json()
         }
     }
 
