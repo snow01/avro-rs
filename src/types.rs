@@ -544,11 +544,11 @@ impl Value {
                     .find_schema_by_type(&t)
                     .ok_or_else(|| SchemaResolutionError::new("Could not find matching type in UnionRecord"))?;
                 let value = v.resolve_internal(inner, index)?;
-                Ok(Value::UnionRecord(Box::new(value),t,None))
+                Ok(Value::UnionRecord(Box::new(value),t,Self::get_value_setting(index)))
             },
             Value::Map(mut map,_) =>{
                 if let Some(t) = map.remove("_type"){
-                    Value::resolve_map_for_union_record(schema, map, t)
+                    Value::resolve_map_for_union_record(schema, map, t,index)
                 }else{
                     Err(SchemaResolutionError::new("No _type field found to resolve map").into())
                 }
@@ -558,14 +558,14 @@ impl Value {
         }
     }
 
-    fn resolve_map_for_union_record(schema: &UnionRecordSchema, map: HashMap<String, Value>, t: Value) -> Result<Value, Error> {
+    fn resolve_map_for_union_record(schema: &UnionRecordSchema, map: HashMap<String, Value>, t: Value, index: bool) -> Result<Value, Error> {
         if let Value::String(t, _) = t {
             let (_, inner) = schema
                 .find_schema_by_type(&t)
                 .ok_or_else(|| SchemaResolutionError::new("Could not find matching type in UnionRecord"))?;
             let value = Value::Map(map, None);
-            let value = value.resolve(inner)?;
-            Ok(Value::UnionRecord(Box::new(value),t,None))
+            let value = value.resolve_internal(inner,index)?;
+            Ok(Value::UnionRecord(Box::new(value),t,Self::get_value_setting(index)))
         } else {
             Err(SchemaResolutionError::new("No _type field found to resolve map ").into())
         }
