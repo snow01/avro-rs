@@ -59,6 +59,7 @@ const ASSET_SOURCE: &str = "1234-src";
 #[test]
 fn test_big_union_schema_parsing() {
     let schema = Schema::parse_str(FULL_WRITE_SCHEMA_BIG_SCHEMA).unwrap();
+    println!("{:?}", &schema);
     println!("{:?}", serde_json::to_string(&schema).unwrap());
 }
 

@@ -606,7 +606,7 @@ impl Schema {
                     ParseSchemaError::new(format!("Unknown complex type: {:?}", complex)).into(),
                 ),
             }*/,
-            Some(&JsonValue::Array(ref data)) => Schema::parse_union_record(data),
+            Some(&JsonValue::Array(ref data)) => Schema::parse_union(data),
             _ => Err(ParseSchemaError::new(format!("No `type` in complex type: {:?}", complex).to_string()).into()),
         }
     }
@@ -714,13 +714,13 @@ impl Schema {
 
     /// Parse a `serde_json::Value` representing a Avro union type into a
     /// `Schema`.
-    fn parse_union_record(items: &[JsonValue]) -> Result<Self, Error> {
+/*    fn parse_union_record(items: &[JsonValue]) -> Result<Self, Error> {
         items
             .iter()
             .map(Schema::parse)
             .collect::<Result<Vec<_>, _>>()
             .and_then(|schemas| Ok(Schema::UnionRecord(UnionRecordSchema::new(schemas)?)))
-    }
+    }*/
 
     /// Parse a `serde_json::Value` representing a Avro fixed type into a
     /// `Schema`.
