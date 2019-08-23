@@ -143,10 +143,10 @@
 //! `Value` interface.
 //!
 //! ```
-//! # extern crate avro_rs;
+//!/* # extern crate avro_rs;
 //! use avro_rs::types::Value;
 //!
-//! let mut value = Value::String("foo".to_string());
+//! let mut value = Value::String("foo".to_string());*/
 //! ```
 //!
 //! ## The serde way

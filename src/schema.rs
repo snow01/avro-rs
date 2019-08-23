@@ -684,7 +684,22 @@ impl Schema {
             .iter()
             .map(Schema::parse)
             .collect::<Result<Vec<_>, _>>()
-            .and_then(|schemas| Ok(Schema::Union(UnionSchema::new(schemas)?)))
+            .and_then(|schemas| {
+                if Self::all_schemas_are_record_kind(&schemas) {
+                    Ok(Schema::UnionRecord(UnionRecordSchema::new(schemas)?))
+                }else {
+                    Ok(Schema::Union(UnionSchema::new(schemas)?))
+                }
+            })
+    }
+
+    fn all_schemas_are_record_kind(schemas: &[Schema]) -> bool {
+        for schema in schemas {
+            if SchemaKind::from(schema) != SchemaKind::Record {
+                return false ;
+            }
+        }
+        true
     }
 
     /// Parse a `serde_json::Value` representing a Avro union type into a
