@@ -3,17 +3,17 @@ use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::{Read, Write};
 
-use crate::{Codec, Writer};
 use crate::reader::Reader;
 use crate::schema::Schema;
 use crate::types;
 use crate::types::{LruValue, Record, Value};
+use crate::{Codec, Writer};
 
 use super::*;
 use time::Duration;
 
 lazy_static! {
-static ref ALL_TYPE_SCHEMA: &'static str = r#"
+    static ref ALL_TYPE_SCHEMA: &'static str = r#"
 {
   "name": "UserProfile",
   "doc": "Filterable attributes",
@@ -133,10 +133,8 @@ fn test_write_file_for_all_types() {
     buffer.write(&input);
 }*/
 
-
 #[test]
 fn test_read_file_for_all_types() {
-
     // Given
     let schema = Schema::parse_str(&ALL_TYPE_SCHEMA).unwrap();
     let mut file = File::open("/Users/sohi/dailyhunt-git/dh-avro-java-extension/foo.avro").unwrap();
@@ -160,7 +158,6 @@ fn test_read_file_for_all_types() {
         _ => println!("Some other type"),
     }
 }
-
 
 #[test]
 fn test_write_file_enum_string_value() {
@@ -189,10 +186,13 @@ fn test_write_file_enum_string_value() {
     let mut reader = Reader::with_schema(&schema, &input[..]).unwrap();
     assert_eq!(
         reader.next().unwrap().unwrap(),
-        Value::Record(vec![
-            ("a".to_string(), Value::Long(27, None)),
-            ("b".to_string(), Value::String("foo".to_string(), None)),
-        ], None)
+        Value::Record(
+            vec![
+                ("a".to_string(), Value::Long(27, None)),
+                ("b".to_string(), Value::String("foo".to_string(), None)),
+            ],
+            None
+        )
     );
     assert!(reader.next().is_none());
 }

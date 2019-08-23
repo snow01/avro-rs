@@ -15,7 +15,11 @@ pub fn encode(value: &Value, schema: &Schema, buffer: &mut Vec<u8>) {
 
 fn encode_bytes<B: AsRef<[u8]> + ?Sized>(s: &B, buffer: &mut Vec<u8>) {
     let bytes = s.as_ref();
-    encode(&Value::Long(bytes.len() as i64, None), &Schema::Long, buffer);
+    encode(
+        &Value::Long(bytes.len() as i64, None),
+        &Schema::Long,
+        buffer,
+    );
     buffer.extend_from_slice(bytes);
 }
 
@@ -44,12 +48,12 @@ pub fn encode_ref(value: &Value, schema: &Schema, buffer: &mut Vec<u8>) {
         Value::String(s, _) => match *schema {
             Schema::String => {
                 encode_bytes(s, buffer);
-            },
+            }
             Schema::Enum { ref symbols, .. } => {
                 if let Some(index) = symbols.iter().position(|item| item == s) {
                     encode_int(index as i32, buffer);
                 }
-            },
+            }
             _ => (),
         },
         Value::Fixed(_, bytes, _) => buffer.extend(bytes),
@@ -64,7 +68,7 @@ pub fn encode_ref(value: &Value, schema: &Schema, buffer: &mut Vec<u8>) {
                 encode_long(idx as i64, buffer);
                 encode_ref(&*item, inner_schema, buffer);
             }
-        },
+        }
         Value::Array(items, _) => {
             if let Schema::Array(ref inner) = *schema {
                 if !items.is_empty() {
@@ -75,7 +79,7 @@ pub fn encode_ref(value: &Value, schema: &Schema, buffer: &mut Vec<u8>) {
                 }
                 buffer.push(0u8);
             }
-        },
+        }
         Value::Map(items, _) => {
             if let Schema::Map(ref inner) = *schema {
                 if !items.is_empty() {
@@ -87,7 +91,7 @@ pub fn encode_ref(value: &Value, schema: &Schema, buffer: &mut Vec<u8>) {
                 }
                 buffer.push(0u8);
             }
-        },
+        }
         Value::Record(fields, _) => {
             if let Schema::Record {
                 fields: ref schema_fields,
@@ -98,7 +102,7 @@ pub fn encode_ref(value: &Value, schema: &Schema, buffer: &mut Vec<u8>) {
                     encode_ref(value, &schema_fields[i].schema, buffer);
                 }
             }
-        },
+        }
 
         Value::Date(i, _) => encode_long(*i, buffer),
         Value::Set(items, _) => {
@@ -109,7 +113,7 @@ pub fn encode_ref(value: &Value, schema: &Schema, buffer: &mut Vec<u8>) {
                 }
             }
             buffer.push(0u8);
-        },
+        }
         Value::LruSet(items, _, _) => {
             if !items.is_empty() {
                 encode_long(items.len() as i64, buffer);
@@ -120,18 +124,16 @@ pub fn encode_ref(value: &Value, schema: &Schema, buffer: &mut Vec<u8>) {
                 }
             }
             buffer.push(0u8);
-        },
-        Value::Optional(value, _) => {
-            match value {
-                Some(val) => {
-                    if let Schema::Optional(ref inner) = *schema {
-                        encode_long(1 as i64, buffer);
-                        encode_ref(&*val, inner, buffer);
-                    }
+        }
+        Value::Optional(value, _) => match value {
+            Some(val) => {
+                if let Schema::Optional(ref inner) = *schema {
+                    encode_long(1 as i64, buffer);
+                    encode_ref(&*val, inner, buffer);
                 }
-                None => {
-                    encode_long(0 as i64, buffer);
-                }
+            }
+            None => {
+                encode_long(0 as i64, buffer);
             }
         },
         Value::Counter(i, _) => encode_long(*i, buffer),
@@ -140,7 +142,7 @@ pub fn encode_ref(value: &Value, schema: &Schema, buffer: &mut Vec<u8>) {
                 encode_ref(&*value, inner, buffer);
             }
         }
-        Value::UnionRecord(item,tp, _) => {
+        Value::UnionRecord(item, tp, _) => {
             if let Schema::UnionRecord(ref inner) = *schema {
                 // Find the schema that is matched here. Due to validation, this should always
                 // return a value.

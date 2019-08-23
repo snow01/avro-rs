@@ -59,7 +59,7 @@ const ASSET_SOURCE: &str = "1234-src";
 #[test]
 fn test_big_union_schema_parsing() {
     let schema = Schema::parse_str(FULL_WRITE_SCHEMA_BIG_SCHEMA).unwrap();
-    println!("{:?}",serde_json::to_string(&schema).unwrap());
+    println!("{:?}", serde_json::to_string(&schema).unwrap());
 }
 
 #[test]
@@ -271,8 +271,7 @@ fn test_union_record_avro_to_json() {
     record.put("asset_type", union_record);
 
     let val = record.avro().json();
-    println!("Json {:?}",serde_json::to_string(&val).unwrap());
-
+    println!("Json {:?}", serde_json::to_string(&val).unwrap());
 }
 
 #[test]
@@ -313,7 +312,7 @@ fn write_avro_bytes_for_java() {
     writer.append(record).unwrap();
     writer.flush().unwrap();
     let input = writer.into_inner();
-    assert!(write_file(path,&input).is_ok());
+    assert!(write_file(path, &input).is_ok());
 }
 
 fn read_file(path: &str) -> std::io::Result<Vec<u8>> {
@@ -323,7 +322,7 @@ fn read_file(path: &str) -> std::io::Result<Vec<u8>> {
     return Ok(data);
 }
 
-fn write_file(path: &str,data: &[u8]) -> std::io::Result<()> {
+fn write_file(path: &str, data: &[u8]) -> std::io::Result<()> {
     let mut file = File::create(path)?;
     file.write_all(data)?;
     file.flush()?;

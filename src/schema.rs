@@ -6,8 +6,8 @@ use std::fmt;
 use digest::Digest;
 use failure::Error;
 use regex::Regex;
+use serde::ser::{Serialize, SerializeMap, SerializeSeq, Serializer};
 use serde::Deserialize;
-use serde::ser::{Serialize, SerializeMap, Serializer, SerializeSeq};
 use serde_json::{self, Map, Value as JsonValue};
 use time::Duration;
 
@@ -25,8 +25,8 @@ pub struct ParseSchemaError(String);
 
 impl ParseSchemaError {
     pub fn new<S>(msg: S) -> ParseSchemaError
-        where
-            S: Into<String>,
+    where
+        S: Into<String>,
     {
         ParseSchemaError(msg.into())
     }
@@ -104,7 +104,10 @@ pub enum Schema {
         symbols: Vec<String>,
     },
     /// A `fixed` Avro schema.
-    Fixed { name: Name, size: usize },
+    Fixed {
+        name: Name,
+        size: usize,
+    },
 
     Date(Option<DateIndexKind>),
 
@@ -138,13 +141,19 @@ pub enum LruLimit {
 
 impl Serialize for LruLimit {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-        where
-            S: Serializer,
+    where
+        S: Serializer,
     {
         match *self {
-            LruLimit::Days(limit, count) => serializer.serialize_str(&format!("{} days;{}", limit.num_days(), count)),
-            LruLimit::Hour(limit, count) => serializer.serialize_str(&format!("{} hour;{}", limit.num_hours(), count)),
-            LruLimit::Minute(limit, count) => serializer.serialize_str(&format!("{} minute;{}", limit.num_minutes(), count)),
+            LruLimit::Days(limit, count) => {
+                serializer.serialize_str(&format!("{} days;{}", limit.num_days(), count))
+            }
+            LruLimit::Hour(limit, count) => {
+                serializer.serialize_str(&format!("{} hour;{}", limit.num_hours(), count))
+            }
+            LruLimit::Minute(limit, count) => {
+                serializer.serialize_str(&format!("{} minute;{}", limit.num_minutes(), count))
+            }
         }
     }
 }
@@ -236,7 +245,7 @@ impl<'a> From<&'a AvroValue> for SchemaKind {
             AvroValue::Optional(_, _) => SchemaKind::Optional,
             AvroValue::Counter(_, _) => SchemaKind::Counter,
             AvroValue::Max(_, _) => SchemaKind::Max,
-            AvroValue::UnionRecord(_,_, _) => SchemaKind::UnionRecord,
+            AvroValue::UnionRecord(_, _, _) => SchemaKind::UnionRecord,
         }
     }
 }
@@ -378,7 +387,8 @@ impl RecordField {
                 "descending" => Some(RecordFieldOrder::Descending),
                 "ignore" => Some(RecordFieldOrder::Ignore),
                 _ => None,
-            }).unwrap_or_else(|| RecordFieldOrder::Ascending);
+            })
+            .unwrap_or_else(|| RecordFieldOrder::Ascending);
 
         Ok(RecordField {
             name,
@@ -687,7 +697,7 @@ impl Schema {
             .and_then(|schemas| {
                 if Self::all_schemas_are_record_kind(&schemas) {
                     Ok(Schema::UnionRecord(UnionRecordSchema::new(schemas)?))
-                }else {
+                } else {
                     Ok(Schema::Union(UnionSchema::new(schemas)?))
                 }
             })
@@ -696,7 +706,7 @@ impl Schema {
     fn all_schemas_are_record_kind(schemas: &[Schema]) -> bool {
         for schema in schemas {
             if SchemaKind::from(schema) != SchemaKind::Record {
-                return false ;
+                return false;
             }
         }
         true
@@ -711,7 +721,6 @@ impl Schema {
             .collect::<Result<Vec<_>, _>>()
             .and_then(|schemas| Ok(Schema::UnionRecord(UnionRecordSchema::new(schemas)?)))
     }
-
 
     /// Parse a `serde_json::Value` representing a Avro fixed type into a
     /// `Schema`.
@@ -734,7 +743,9 @@ impl Schema {
     fn parse_date(complex: &Map<String, JsonValue>) -> Result<Self, Error> {
         match complex.get("index_kind") {
             Some(v) => {
-                let v = v.as_str().ok_or_else(|| failure::err_msg(format!("Not a valid index_kind value for date type: {}", v)))?;
+                let v = v.as_str().ok_or_else(|| {
+                    failure::err_msg(format!("Not a valid index_kind value for date type: {}", v))
+                })?;
 
                 let kind = match v {
                     "day" => Ok(DateIndexKind::Day),
@@ -748,7 +759,7 @@ impl Schema {
 
                 Ok(Schema::Date(Some(kind)))
             }
-            None => Ok(Schema::Date(None))
+            None => Ok(Schema::Date(None)),
         }
     }
 
@@ -764,27 +775,35 @@ impl Schema {
 
     fn parse_lru_limit(v: &JsonValue) -> Result<LruLimit, Error> {
         v.as_str()
-            .ok_or_else(|| failure::err_msg(format!("Not a valid limit value for lru_set type: {}", v)))
+            .ok_or_else(|| {
+                failure::err_msg(format!("Not a valid limit value for lru_set type: {}", v))
+            })
             .map(|s| LRU_LIMIT_REGEX.captures(s))
             .and_then(|r| {
-                r
-                    .ok_or_else(|| failure::err_msg(format!("Not a valid limit value for lru_set type: {}", v)))
-                    .and_then(|caps| {
-                        let value = caps.name("value").unwrap().as_str();
-                        let value = value.parse::<i64>()?;
+                r.ok_or_else(|| {
+                    failure::err_msg(format!("Not a valid limit value for lru_set type: {}", v))
+                })
+                .and_then(|caps| {
+                    let value = caps.name("value").unwrap().as_str();
+                    let value = value.parse::<i64>()?;
 
-                        let count = caps.name("count").map_or(Ok(0), |m| m.as_str().parse::<i32>())?;
+                    let count = caps
+                        .name("count")
+                        .map_or(Ok(0), |m| m.as_str().parse::<i32>())?;
 
-                        caps.name("type")
-                            .map_or(Err(failure::err_msg("No limit type provided")), |r| {
-                                match r.as_str() {
-                                    "days" => Ok(LruLimit::Days(Duration::days(value), count)),
-                                    "hour" => Ok(LruLimit::Hour(Duration::hours(value), count)),
-                                    "minute" => Ok(LruLimit::Minute(Duration::minutes(value), count)),
-                                    other => Err(failure::err_msg(format!("Not a valid limit value for lru_set type: {}", other))),
-                                }
-                            })
-                    })
+                    caps.name("type")
+                        .map_or(Err(failure::err_msg("No limit type provided")), |r| match r
+                            .as_str()
+                        {
+                            "days" => Ok(LruLimit::Days(Duration::days(value), count)),
+                            "hour" => Ok(LruLimit::Hour(Duration::hours(value), count)),
+                            "minute" => Ok(LruLimit::Minute(Duration::minutes(value), count)),
+                            other => Err(failure::err_msg(format!(
+                                "Not a valid limit value for lru_set type: {}",
+                                other
+                            ))),
+                        })
+                })
             })
     }
 
@@ -806,10 +825,15 @@ impl Schema {
                 let value = Schema::parse(value)?;
                 let kind = SchemaKind::from(&value);
 
-                if let SchemaKind::Int | SchemaKind::Long | SchemaKind::Float | SchemaKind::Date = kind {
+                if let SchemaKind::Int | SchemaKind::Long | SchemaKind::Float | SchemaKind::Date =
+                    kind
+                {
                     Ok(value)
                 } else {
-                    Err(ParseSchemaError::new("Either of int, long, float, or date is allowed for max").into())
+                    Err(ParseSchemaError::new(
+                        "Either of int, long, float, or date is allowed for max",
+                    )
+                    .into())
                 }
             })
             .map(|schema| Schema::Max(Box::new(schema)))
@@ -837,7 +861,7 @@ impl Schema {
             Schema::Optional(_) => String::from("optional"),
             Schema::Counter => String::from("counter"),
             Schema::Max(_) => String::from("max"),
-            Schema::UnionRecord(_) => String::from("union_record")
+            Schema::UnionRecord(_) => String::from("union_record"),
         }
     }
 }
@@ -845,23 +869,24 @@ impl Schema {
 impl<'de> Deserialize<'de> for Schema {
     #[inline]
     fn deserialize<D>(deserializer: D) -> Result<Schema, D::Error>
-        where
-            D: serde::Deserializer<'de>,
+    where
+        D: serde::Deserializer<'de>,
     {
-        JsonValue::deserialize(deserializer)
-            .and_then(|value| {
-                Schema::parse(&value)
-                    .map_err(|e| {
-                        serde::de::Error::custom(format!("Error in parsing Spec json ({}) ==> {}", value, e))
-                    })
+        JsonValue::deserialize(deserializer).and_then(|value| {
+            Schema::parse(&value).map_err(|e| {
+                serde::de::Error::custom(format!(
+                    "Error in parsing Spec json ({}) ==> {}",
+                    value, e
+                ))
             })
+        })
     }
 }
 
 impl Serialize for Schema {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-        where
-            S: Serializer,
+    where
+        S: Serializer,
     {
         match *self {
             Schema::Null => serializer.serialize_str("null"),
@@ -938,28 +963,24 @@ impl Serialize for Schema {
                 map.end()
             }
             Schema::Set => serializer.serialize_str("set"),
-            Schema::Date(ref index_kind) => {
-                match index_kind {
-                    Some(index_kind) => {
-                        let mut map = serializer.serialize_map(Some(2))?;
-                        map.serialize_entry("type", "date")?;
+            Schema::Date(ref index_kind) => match index_kind {
+                Some(index_kind) => {
+                    let mut map = serializer.serialize_map(Some(2))?;
+                    map.serialize_entry("type", "date")?;
 
-                        let index_kind_str = match index_kind {
-                            DateIndexKind::Day => "day",
-                            DateIndexKind::Hour => "hour",
-                            DateIndexKind::Minute => "minute",
-                            DateIndexKind::Second => "second",
-                        };
+                    let index_kind_str = match index_kind {
+                        DateIndexKind::Day => "day",
+                        DateIndexKind::Hour => "hour",
+                        DateIndexKind::Minute => "minute",
+                        DateIndexKind::Second => "second",
+                    };
 
-                        map.serialize_entry("index_kind", index_kind_str)?;
+                    map.serialize_entry("index_kind", index_kind_str)?;
 
-                        map.end()
-                    }
-                    None => {
-                        serializer.serialize_str("date")
-                    }
+                    map.end()
                 }
-            }
+                None => serializer.serialize_str("date"),
+            },
             Schema::LruSet(ref limit) => {
                 let mut map = serializer.serialize_map(Some(2))?;
                 map.serialize_entry("type", "lru_set")?;
@@ -985,15 +1006,15 @@ impl Serialize for Schema {
                     seq.serialize_element(v)?;
                 }
                 seq.end()
-            },
+            }
         }
     }
 }
 
 impl Serialize for RecordField {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-        where
-            S: Serializer,
+    where
+        S: Serializer,
     {
         let mut map = serializer.serialize_map(None)?;
         map.serialize_entry("name", &self.name)?;
@@ -1199,7 +1220,8 @@ mod tests {
                 ]
             }
         "#,
-        ).unwrap();
+        )
+        .unwrap();
 
         let mut lookup = HashMap::new();
         lookup.insert("a".to_owned(), 0);

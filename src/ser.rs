@@ -332,7 +332,7 @@ impl ser::SerializeMap for MapSerializer {
     {
         let key = key.serialize(&mut Serializer::default())?;
 
-        if let Value::String(key,None) = key {
+        if let Value::String(key, None) = key {
             self.indices.insert(key, self.values.len());
             Ok(())
         } else {
@@ -426,10 +426,13 @@ mod tests {
             a: 27,
             b: "foo".to_owned(),
         };
-        let expected = Value::Record(vec![
-            ("a".to_owned(), Value::Long(27, None)),
-            ("b".to_owned(), Value::String("foo".to_owned(), None)),
-        ], None);
+        let expected = Value::Record(
+            vec![
+                ("a".to_owned(), Value::Long(27, None)),
+                ("b".to_owned(), Value::String("foo".to_owned(), None)),
+            ],
+            None,
+        );
 
         assert_eq!(to_value(test).unwrap(), expected);
     }

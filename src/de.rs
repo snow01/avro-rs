@@ -121,9 +121,11 @@ impl<'a, 'de> de::Deserializer<'de> for &'a mut Deserializer<'de> {
     {
         match *self.input {
             Value::String(ref s, _) => visitor.visit_str(s),
-            Value::Bytes(ref bytes, _) | Value::Fixed(_, ref bytes, None) => ::std::str::from_utf8(bytes)
-                .map_err(|e| Error::custom(e.description()))
-                .and_then(|s| visitor.visit_str(s)),
+            Value::Bytes(ref bytes, _) | Value::Fixed(_, ref bytes, None) => {
+                ::std::str::from_utf8(bytes)
+                    .map_err(|e| Error::custom(e.description()))
+                    .and_then(|s| visitor.visit_str(s))
+            }
             _ => Err(Error::custom("not a string|bytes|fixed")),
         }
     }
@@ -138,7 +140,7 @@ impl<'a, 'de> de::Deserializer<'de> for &'a mut Deserializer<'de> {
                 String::from_utf8(bytes.to_owned())
                     .map_err(|e| Error::custom(e.description()))
                     .and_then(|s| visitor.visit_string(s))
-            },
+            }
             _ => Err(Error::custom("not a string|bytes|fixed")),
         }
     }
@@ -149,7 +151,9 @@ impl<'a, 'de> de::Deserializer<'de> for &'a mut Deserializer<'de> {
     {
         match *self.input {
             Value::String(ref s, _) => visitor.visit_bytes(s.as_bytes()),
-            Value::Bytes(ref bytes, _) | Value::Fixed(_, ref bytes, _) => visitor.visit_bytes(bytes),
+            Value::Bytes(ref bytes, _) | Value::Fixed(_, ref bytes, _) => {
+                visitor.visit_bytes(bytes)
+            }
             _ => Err(Error::custom("not a string|bytes|fixed")),
         }
     }
@@ -162,7 +166,7 @@ impl<'a, 'de> de::Deserializer<'de> for &'a mut Deserializer<'de> {
             Value::String(ref s, _) => visitor.visit_byte_buf(s.clone().into_bytes()),
             Value::Bytes(ref bytes, _) | Value::Fixed(_, ref bytes, _) => {
                 visitor.visit_byte_buf(bytes.to_owned())
-            },
+            }
             _ => Err(Error::custom("not a string|bytes|fixed")),
         }
     }
@@ -319,7 +323,8 @@ impl<'de> de::MapAccess<'de> for MapDeserializer<'de> {
             Some(ref key) => seed
                 .deserialize(StringDeserializer {
                     input: (*key).clone(),
-                }).map(Some),
+                })
+                .map(Some),
             None => Ok(None),
         }
     }
@@ -348,8 +353,9 @@ impl<'de> de::MapAccess<'de> for StructDeserializer<'de> {
                 self.value = Some(value);
                 seed.deserialize(StringDeserializer {
                     input: field.clone(),
-                }).map(Some)
-            },
+                })
+                .map(Some)
+            }
             None => Ok(None),
         }
     }

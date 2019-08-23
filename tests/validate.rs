@@ -35,7 +35,14 @@ lazy_static! {
         ),
         (
             r#"{"type": "array", "items": "long"}"#,
-            Value::Array(vec![Value::Long(1, None), Value::Long(3, None), Value::Long(2, None)], None)
+            Value::Array(
+                vec![
+                    Value::Long(1, None),
+                    Value::Long(3, None),
+                    Value::Long(2, None)
+                ],
+                None
+            )
         ),
         (r#"{"type": "map", "values": "long"}"#, {
             let mut map = HashMap::new();

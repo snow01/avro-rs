@@ -2,10 +2,10 @@ use std::collections::{HashMap, HashSet};
 use std::io::Read;
 use std::mem::transmute;
 
-use failure::Error;
 use crate::schema::{Schema, UnionRecordSchema};
-use crate::types::{Value, LruValue};
+use crate::types::{LruValue, Value};
 use crate::util::{safe_len, zag_i32, zag_i64, DecodeError};
+use failure::Error;
 
 #[inline]
 fn decode_counter<R: Read>(reader: &mut R) -> Result<Value, Error> {
@@ -45,19 +45,25 @@ pub fn decode<R: Read>(schema: &Schema, reader: &mut R) -> Result<Value, Error> 
                 1u8 => Ok(Value::Boolean(true, None)),
                 _ => Err(DecodeError::new("not a bool").into()),
             }
-        },
+        }
         Schema::Int => decode_int(reader),
         Schema::Long => decode_long(reader),
         Schema::Float => {
             let mut buf = [0u8; 4];
             reader.read_exact(&mut buf[..])?;
-            Ok(Value::Float(unsafe { transmute::<[u8; 4], f32>(buf) }, None))
-        },
+            Ok(Value::Float(
+                unsafe { transmute::<[u8; 4], f32>(buf) },
+                None,
+            ))
+        }
         Schema::Double => {
             let mut buf = [0u8; 8];
             reader.read_exact(&mut buf[..])?;
-            Ok(Value::Double(unsafe { transmute::<[u8; 8], f64>(buf) }, None))
-        },
+            Ok(Value::Double(
+                unsafe { transmute::<[u8; 8], f64>(buf) },
+                None,
+            ))
+        }
         Schema::Bytes => {
             let len = decode_len(reader)?;
             let mut buf = Vec::with_capacity(len);
@@ -66,7 +72,7 @@ pub fn decode<R: Read>(schema: &Schema, reader: &mut R) -> Result<Value, Error> 
             }
             reader.read_exact(&mut buf)?;
             Ok(Value::Bytes(buf, None))
-        },
+        }
         Schema::String => {
             let len = decode_len(reader)?;
             let mut buf = Vec::with_capacity(len);
@@ -78,12 +84,12 @@ pub fn decode<R: Read>(schema: &Schema, reader: &mut R) -> Result<Value, Error> 
             String::from_utf8(buf)
                 .map(|v| Value::String(v, None))
                 .map_err(|_| DecodeError::new("not a valid utf-8 string").into())
-        },
+        }
         Schema::Fixed { size, .. } => {
             let mut buf = vec![0u8; size as usize];
             reader.read_exact(&mut buf)?;
             Ok(Value::Fixed(size, buf, None))
-        },
+        }
         Schema::Array(ref inner) => {
             let mut items = Vec::new();
 
@@ -92,7 +98,7 @@ pub fn decode<R: Read>(schema: &Schema, reader: &mut R) -> Result<Value, Error> 
                 // arrays are 0-terminated, 0i64 is also encoded as 0 in Avro
                 // reading a length of 0 means the end of the array
                 if len == 0 {
-                    break
+                    break;
                 }
 
                 items.reserve(len as usize);
@@ -102,7 +108,7 @@ pub fn decode<R: Read>(schema: &Schema, reader: &mut R) -> Result<Value, Error> 
             }
 
             Ok(Value::Array(items, None))
-        },
+        }
         Schema::Map(ref inner) => {
             let mut items = HashMap::new();
 
@@ -111,7 +117,7 @@ pub fn decode<R: Read>(schema: &Schema, reader: &mut R) -> Result<Value, Error> 
                 // maps are 0-terminated, 0i64 is also encoded as 0 in Avro
                 // reading a length of 0 means the end of the map
                 if len == 0 {
-                    break
+                    break;
                 }
 
                 items.reserve(len as usize);
@@ -120,13 +126,13 @@ pub fn decode<R: Read>(schema: &Schema, reader: &mut R) -> Result<Value, Error> 
                         let value = decode(inner, reader)?;
                         items.insert(key, value);
                     } else {
-                        return Err(DecodeError::new("map key is not a string").into())
+                        return Err(DecodeError::new("map key is not a string").into());
                     }
                 }
             }
 
             Ok(Value::Map(items, None))
-        },
+        }
         Schema::Union(ref inner) => {
             let index = zag_i64(reader)?;
             let variants = inner.variants();
@@ -134,15 +140,18 @@ pub fn decode<R: Read>(schema: &Schema, reader: &mut R) -> Result<Value, Error> 
                 Some(variant) => decode(variant, reader).map(|x| Value::Union(Box::new(x), None)),
                 None => Err(DecodeError::new("Union index out of bounds").into()),
             }
-        },
-        Schema::Record { ref fields/*, allow_partial*/, .. } => {
+        }
+        Schema::Record {
+            ref fields, /*, allow_partial*/
+            ..
+        } => {
             // Benchmarks indicate ~10% improvement using this method.
-             fields
-             .iter()
-             .map(|field| decode(&field.schema, reader).map(|value| (field.name.clone(), value)))
-             .collect::<Result<Vec<(String, Value)>, _>>()
-             .map(|items| Value::Record(items, None))
-        },
+            fields
+                .iter()
+                .map(|field| decode(&field.schema, reader).map(|value| (field.name.clone(), value)))
+                .collect::<Result<Vec<(String, Value)>, _>>()
+                .map(|items| Value::Record(items, None))
+        }
         Schema::Enum { ref symbols, .. } => {
             if let Value::Int(index, _) = decode_int(reader)? {
                 if index >= 0 && (index as usize) <= symbols.len() {
@@ -154,7 +163,7 @@ pub fn decode<R: Read>(schema: &Schema, reader: &mut R) -> Result<Value, Error> 
             } else {
                 Err(DecodeError::new("enum symbol not found").into())
             }
-        },
+        }
         Schema::Date(_) => decode_date(reader),
         Schema::Set => {
             let mut items: HashSet<String> = HashSet::new();
@@ -164,7 +173,7 @@ pub fn decode<R: Read>(schema: &Schema, reader: &mut R) -> Result<Value, Error> 
                 // arrays are 0-terminated, 0i64 is also encoded as 0 in Avro
                 // reading a length of 0 means the end of the array
                 if len == 0 {
-                    break
+                    break;
                 }
 
                 items.reserve(len as usize);
@@ -172,13 +181,13 @@ pub fn decode<R: Read>(schema: &Schema, reader: &mut R) -> Result<Value, Error> 
                     if let Value::String(val, _) = decode(&Schema::String, reader)? {
                         items.insert(val);
                     } else {
-                        return Err(DecodeError::new("set value is not a string").into())
+                        return Err(DecodeError::new("set value is not a string").into());
                     }
                 }
             }
 
             Ok(Value::Set(items, None))
-        },
+        }
         Schema::LruSet(ref lru_limit) => {
             let mut items: HashMap<String, LruValue> = HashMap::new();
 
@@ -187,7 +196,7 @@ pub fn decode<R: Read>(schema: &Schema, reader: &mut R) -> Result<Value, Error> 
                 // maps are 0-terminated, 0i64 is also encoded as 0 in Avro
                 // reading a length of 0 means the end of the map
                 if len == 0 {
-                    break
+                    break;
                 }
 
                 items.reserve(len as usize);
@@ -197,32 +206,24 @@ pub fn decode<R: Read>(schema: &Schema, reader: &mut R) -> Result<Value, Error> 
                         let count = zag_i64(reader)?;
                         items.insert(key, LruValue::new(access_time, count));
                     } else {
-                        return Err(DecodeError::new("map key is not a string").into())
+                        return Err(DecodeError::new("map key is not a string").into());
                     }
                 }
             }
 
             Ok(Value::LruSet(items, lru_limit.clone(), None))
-        },
+        }
         Schema::Optional(ref inner) => {
             let index = zag_i64(reader)?;
             match index {
-                0 => {
-                    Ok(Value::Optional(None, None))
-                },
-                1 => {
-                    decode(inner, reader).map(|x| Value::Optional(Some(Box::new(x)), None))
-                },
-                _ => {
-                    Err(DecodeError::new("Optional index out of bounds").into())
-                }
+                0 => Ok(Value::Optional(None, None)),
+                1 => decode(inner, reader).map(|x| Value::Optional(Some(Box::new(x)), None)),
+                _ => Err(DecodeError::new("Optional index out of bounds").into()),
             }
-        },
-        Schema::Counter => decode_counter(reader),
-        Schema::Max(ref inner) => {
-            decode(inner, reader).map(|x| Value::Max(Box::new(x), None))
         }
-        Schema::UnionRecord(ref inner) => decode_union_record(reader, inner)
+        Schema::Counter => decode_counter(reader),
+        Schema::Max(ref inner) => decode(inner, reader).map(|x| Value::Max(Box::new(x), None)),
+        Schema::UnionRecord(ref inner) => decode_union_record(reader, inner),
     }
 }
 
@@ -231,13 +232,13 @@ fn decode_union_record<R: Read>(reader: &mut R, inner: &UnionRecordSchema) -> Re
     let variants = inner.variants();
     match variants.get(index as usize) {
         Some(variant) => {
-            if let Schema::Record { name, .. } =  variant {
+            if let Schema::Record { name, .. } = variant {
                 let name = name.name.clone();
                 decode(variant, reader).map(|x| Value::UnionRecord(Box::new(x), name, None))
-            }else{
+            } else {
                 Err(DecodeError::new("only record types are allowed inside UnionRecord").into())
             }
-        },
+        }
         None => Err(DecodeError::new("UnionRecord index out of bounds").into()),
     }
 }

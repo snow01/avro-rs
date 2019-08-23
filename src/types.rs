@@ -7,8 +7,10 @@ use std::u8;
 use failure::Error;
 use serde_json::Value as JsonValue;
 
+use crate::schema::{
+    DateIndexKind, RecordField, Schema, SchemaKind, UnionRecordSchema, UnionSchema,
+};
 use crate::LruLimit;
-use crate::schema::{RecordField, Schema, SchemaKind, UnionSchema, DateIndexKind, UnionRecordSchema};
 use std::ops::Deref;
 
 const ACCESS_TIME: &str = "access_time";
@@ -16,7 +18,7 @@ const COUNT: &str = "count";
 
 lazy_static! {
     pub static ref LRU_VALUE_SCHEMA: Schema = Schema::parse_str(
-            r#"
+        r#"
             {
                 "type": "record",
                 "name": "lru_value",
@@ -26,7 +28,8 @@ lazy_static! {
                 ]
             }
         "#,
-        ).unwrap();
+    )
+    .unwrap();
 }
 
 /// Describes errors happened while performing schema resolution on Avro data.
@@ -36,8 +39,8 @@ pub struct SchemaResolutionError(String);
 
 impl SchemaResolutionError {
     pub fn new<S>(msg: S) -> SchemaResolutionError
-        where
-            S: Into<String>,
+    where
+        S: Into<String>,
     {
         SchemaResolutionError(msg.into())
     }
@@ -49,7 +52,7 @@ pub trait Indexable {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ValueSetting {
-    pub index: bool
+    pub index: bool,
 }
 
 impl Indexable for ValueSetting {
@@ -61,7 +64,7 @@ impl Indexable for ValueSetting {
 #[derive(Clone, Debug, PartialEq)]
 pub struct DateValueSetting {
     pub index: bool,
-    pub index_kind: DateIndexKind
+    pub index_kind: DateIndexKind,
 }
 
 impl Indexable for DateValueSetting {
@@ -156,10 +159,7 @@ pub struct LruValue {
 
 impl LruValue {
     pub fn new(access_time: i64, count: i64) -> LruValue {
-        LruValue {
-            access_time,
-            count,
-        }
+        LruValue { access_time, count }
     }
 
     pub fn json(&self) -> JsonValue {
@@ -174,7 +174,10 @@ impl LruValue {
 impl ToAvro for LruValue {
     fn avro(self) -> Value {
         let mut fields: Vec<(String, Value)> = Vec::new();
-        fields.push((ACCESS_TIME.to_owned(), Value::Long(self.access_time as i64, None)));
+        fields.push((
+            ACCESS_TIME.to_owned(),
+            Value::Long(self.access_time as i64, None),
+        ));
         fields.push((COUNT.to_owned(), Value::Long(self.count as i64, None)));
 
         Value::Record(fields, None)
@@ -230,8 +233,8 @@ impl<'a> ToAvro for &'a [u8] {
 }
 
 impl<T> ToAvro for Option<T>
-    where
-        T: ToAvro,
+where
+    T: ToAvro,
 {
     fn avro(self) -> Value {
         let v = match self {
@@ -243,8 +246,8 @@ impl<T> ToAvro for Option<T>
 }
 
 impl<T, S: BuildHasher> ToAvro for HashMap<String, T, S>
-    where
-        T: ToAvro,
+where
+    T: ToAvro,
 {
     fn avro(self) -> Value {
         Value::Map(
@@ -257,8 +260,8 @@ impl<T, S: BuildHasher> ToAvro for HashMap<String, T, S>
 }
 
 impl<'a, T, S: BuildHasher> ToAvro for HashMap<&'a str, T, S>
-    where
-        T: ToAvro,
+where
+    T: ToAvro,
 {
     fn avro(self) -> Value {
         Value::Map(
@@ -327,8 +330,8 @@ impl<'a> Record<'a> {
     /// **NOTE** Only ensure that the field name is present in the `Schema` given when creating
     /// this `Record`. Does not perform any schema validation.
     pub fn put<V>(&mut self, field: &str, value: V)
-        where
-            V: ToAvro,
+    where
+        V: ToAvro,
     {
         if let Some(&position) = self.schema_lookup.get(field) {
             self.fields[position].1 = value.avro()
@@ -361,7 +364,6 @@ impl ToAvro for JsonValue {
                     .collect::<_>(),
                 None,
             ),
-
             // there is no equivalent of set and lru_set in json
             // set in json would be represented as Array
             // while lru_set in json would be represented as Object
@@ -394,14 +396,14 @@ impl Value {
             (&Value::Union(ref value, _), &Schema::Union(ref inner)) => {
                 inner.find_schema(value).is_some()
             }
-            (&Value::UnionRecord(ref value,ref t, _), &Schema::UnionRecord(ref inner)) => {
-                if let Value::Record(_,_) = value.deref() {
-                    if let Some((_,schema)) = inner.find_schema_by_type(t){
+            (&Value::UnionRecord(ref value, ref t, _), &Schema::UnionRecord(ref inner)) => {
+                if let Value::Record(_, _) = value.deref() {
+                    if let Some((_, schema)) = inner.find_schema_by_type(t) {
                         value.validate(schema)
-                    }else{
+                    } else {
                         false
                     }
-                }else{
+                } else {
                     false
                 }
             }
@@ -413,11 +415,12 @@ impl Value {
             }
             (&Value::Record(ref record_fields, _), &Schema::Record { ref fields, .. }) => {
                 // handle case of missing fields from value
-                fields.len() == record_fields.len() && fields.iter().zip(record_fields.iter()).all(
-                    |(field, &(ref name, ref value))| {
-                        field.name == *name && value.validate(&field.schema)
-                    },
-                )
+                fields.len() == record_fields.len()
+                    && fields.iter().zip(record_fields.iter()).all(
+                        |(field, &(ref name, ref value))| {
+                            field.name == *name && value.validate(&field.schema)
+                        },
+                    )
             }
 
             (&Value::Date(ref _value, _), &Schema::Date(_)) => {
@@ -432,15 +435,11 @@ impl Value {
                 // if value could be represented as typed HashMap of String and LruValue, then no further validations are required.
                 true
             }
-            (&Value::Optional(ref value, _), &Schema::Optional(ref inner)) => {
-                match value {
-                    Some(v) => v.validate(inner),
-                    None => true
-                }
-            }
-            (&Value::Max(ref value, _), &Schema::Max(ref inner)) => {
-                value.validate(inner)
-            }
+            (&Value::Optional(ref value, _), &Schema::Optional(ref inner)) => match value {
+                Some(v) => v.validate(inner),
+                None => true,
+            },
+            (&Value::Max(ref value, _), &Schema::Max(ref inner)) => value.validate(inner),
 
             (&Value::Counter(_, _), &Schema::Counter) => true,
 
@@ -480,7 +479,11 @@ impl Value {
             Schema::Enum { ref symbols, .. } => self.resolve_enum(symbols, false),
             Schema::Array(ref inner) => self.resolve_array(inner, false),
             Schema::Map(ref inner) => self.resolve_map(inner, false),
-            Schema::Record { ref name, ref fields, .. } => self.resolve_record(fields, name.index),
+            Schema::Record {
+                ref name,
+                ref fields,
+                ..
+            } => self.resolve_record(fields, name.index),
 
             Schema::Date(ref index_kind) => self.resolve_datetime(false, index_kind),
             Schema::Set => self.resolve_set(false),
@@ -489,7 +492,7 @@ impl Value {
             Schema::Max(ref inner) => self.resolve_max(inner, false),
             Schema::Counter => self.resolve_counter(false),
             // Todo(FIXME ::(sohan) pending union record) - would it come to this ?
-            Schema::UnionRecord(ref inner) => self.resolve_union_record(inner,false)
+            Schema::UnionRecord(ref inner) => self.resolve_union_record(inner, false),
         }
     }
 
@@ -525,7 +528,11 @@ impl Value {
             Schema::Enum { ref symbols, .. } => self.resolve_enum(symbols, index),
             Schema::Array(ref inner) => self.resolve_array(inner, index),
             Schema::Map(ref inner) => self.resolve_map(inner, index),
-            Schema::Record { ref name, ref fields, .. } => self.resolve_record(fields, name.index.or_else(||Some(index))),
+            Schema::Record {
+                ref name,
+                ref fields,
+                ..
+            } => self.resolve_record(fields, name.index.or_else(|| Some(index))),
 
             Schema::Date(ref index_kind) => self.resolve_datetime(index, index_kind),
             Schema::Set => self.resolve_set(index),
@@ -533,39 +540,55 @@ impl Value {
             Schema::Optional(ref inner) => self.resolve_optional(inner, index),
             Schema::Counter => self.resolve_counter(index),
             Schema::Max(ref inner) => self.resolve_max(inner, index),
-            Schema::UnionRecord(ref inner) => self.resolve_union_record(inner,index)
+            Schema::UnionRecord(ref inner) => self.resolve_union_record(inner, index),
         }
     }
 
     fn resolve_union_record(self, schema: &UnionRecordSchema, index: bool) -> Result<Self, Error> {
         match self {
-            Value::UnionRecord(v,t, _) => {
-                let (_, inner) = schema
-                    .find_schema_by_type(&t)
-                    .ok_or_else(|| SchemaResolutionError::new("Could not find matching type in UnionRecord"))?;
+            Value::UnionRecord(v, t, _) => {
+                let (_, inner) = schema.find_schema_by_type(&t).ok_or_else(|| {
+                    SchemaResolutionError::new("Could not find matching type in UnionRecord")
+                })?;
                 let value = v.resolve_internal(inner, index)?;
-                Ok(Value::UnionRecord(Box::new(value),t,Self::get_value_setting(index)))
-            },
-            Value::Map(mut map,_) =>{
-                if let Some(t) = map.remove("_type"){
-                    Value::resolve_map_for_union_record(schema, map, t,index)
-                }else{
+                Ok(Value::UnionRecord(
+                    Box::new(value),
+                    t,
+                    Self::get_value_setting(index),
+                ))
+            }
+            Value::Map(mut map, _) => {
+                if let Some(t) = map.remove("_type") {
+                    Value::resolve_map_for_union_record(schema, map, t, index)
+                } else {
                     Err(SchemaResolutionError::new("No _type field found to resolve map").into())
                 }
-
             }
-            other=>  Err(SchemaResolutionError::new(format!("UnionRecord expected, got {:?}", other)).into())
+            other => Err(SchemaResolutionError::new(format!(
+                "UnionRecord expected, got {:?}",
+                other
+            ))
+            .into()),
         }
     }
 
-    fn resolve_map_for_union_record(schema: &UnionRecordSchema, map: HashMap<String, Value>, t: Value, index: bool) -> Result<Value, Error> {
+    fn resolve_map_for_union_record(
+        schema: &UnionRecordSchema,
+        map: HashMap<String, Value>,
+        t: Value,
+        index: bool,
+    ) -> Result<Value, Error> {
         if let Value::String(t, _) = t {
-            let (_, inner) = schema
-                .find_schema_by_type(&t)
-                .ok_or_else(|| SchemaResolutionError::new("Could not find matching type in UnionRecord"))?;
+            let (_, inner) = schema.find_schema_by_type(&t).ok_or_else(|| {
+                SchemaResolutionError::new("Could not find matching type in UnionRecord")
+            })?;
             let value = Value::Map(map, None);
-            let value = value.resolve_internal(inner,index)?;
-            Ok(Value::UnionRecord(Box::new(value),t,Self::get_value_setting(index)))
+            let value = value.resolve_internal(inner, index)?;
+            Ok(Value::UnionRecord(
+                Box::new(value),
+                t,
+                Self::get_value_setting(index),
+            ))
         } else {
             Err(SchemaResolutionError::new("No _type field found to resolve map ").into())
         }
@@ -653,7 +676,10 @@ impl Value {
     fn resolve_string(self, index: bool) -> Result<Self, Error> {
         match self {
             Value::String(s, _) => Ok(Value::String(s, Self::get_value_setting(index))),
-            Value::Bytes(bytes, _) => Ok(Value::String(String::from_utf8(bytes)?, Self::get_value_setting(index))),
+            Value::Bytes(bytes, _) => Ok(Value::String(
+                String::from_utf8(bytes)?,
+                Self::get_value_setting(index),
+            )),
             other => {
                 Err(SchemaResolutionError::new(format!("String expected, got {:?}", other)).into())
             }
@@ -662,14 +688,17 @@ impl Value {
 
     fn resolve_fixed(self, size: usize, index: bool) -> Result<Self, Error> {
         match self {
-            Value::Fixed(n, bytes, _) => if n == size {
-                Ok(Value::Fixed(n, bytes, Self::get_value_setting(index)))
-            } else {
-                Err(SchemaResolutionError::new(format!(
-                    "Fixed size mismatch, {} expected, got {}",
-                    size, n
-                )).into())
-            },
+            Value::Fixed(n, bytes, _) => {
+                if n == size {
+                    Ok(Value::Fixed(n, bytes, Self::get_value_setting(index)))
+                } else {
+                    Err(SchemaResolutionError::new(format!(
+                        "Fixed size mismatch, {} expected, got {}",
+                        size, n
+                    ))
+                    .into())
+                }
+            }
             other => {
                 Err(SchemaResolutionError::new(format!("String expected, got {:?}", other)).into())
             }
@@ -679,30 +708,39 @@ impl Value {
     fn resolve_enum(self, symbols: &[String], index: bool) -> Result<Self, Error> {
         let validate_symbol = |symbol: String, symbols: &[String]| {
             if let Some(i) = symbols.iter().position(|ref item| item == &&symbol) {
-                Ok(Value::Enum(i as i32, symbol, Self::get_value_setting(index)))
+                Ok(Value::Enum(
+                    i as i32,
+                    symbol,
+                    Self::get_value_setting(index),
+                ))
             } else {
                 Err(SchemaResolutionError::new(format!(
                     "Enum default {} is not among allowed symbols {:?}",
                     symbol, symbols,
-                )).into())
+                ))
+                .into())
             }
         };
 
         match self {
-            Value::Enum(i, s, _) => if i >= 0 && i < symbols.len() as i32 {
-                validate_symbol(s, symbols)
-            } else {
-                Err(SchemaResolutionError::new(format!(
-                    "Enum value {} is out of bound {}",
-                    i,
-                    symbols.len() as i32
-                )).into())
-            },
+            Value::Enum(i, s, _) => {
+                if i >= 0 && i < symbols.len() as i32 {
+                    validate_symbol(s, symbols)
+                } else {
+                    Err(SchemaResolutionError::new(format!(
+                        "Enum value {} is out of bound {}",
+                        i,
+                        symbols.len() as i32
+                    ))
+                    .into())
+                }
+            }
             Value::String(s, _) => validate_symbol(s, symbols),
             other => Err(SchemaResolutionError::new(format!(
                 "Enum({:?}) expected, got {:?}",
                 symbols, other
-            )).into()),
+            ))
+            .into()),
         }
     }
 
@@ -732,7 +770,8 @@ impl Value {
             other => Err(SchemaResolutionError::new(format!(
                 "Array({:?}) expected, got {:?}",
                 schema, other
-            )).into()),
+            ))
+            .into()),
         }
     }
 
@@ -741,14 +780,19 @@ impl Value {
             Value::Map(items, _) => Ok(Value::Map(
                 items
                     .into_iter()
-                    .map(|(key, value)| value.resolve_internal(schema, index).map(|value| (key, value)))
+                    .map(|(key, value)| {
+                        value
+                            .resolve_internal(schema, index)
+                            .map(|value| (key, value))
+                    })
                     .collect::<Result<HashMap<_, _>, _>>()?,
                 Self::get_value_setting(index),
             )),
             other => Err(SchemaResolutionError::new(format!(
                 "Map({:?}) expected, got {:?}",
                 schema, other
-            )).into()),
+            ))
+            .into()),
         }
     }
 
@@ -765,7 +809,9 @@ impl Value {
         let new_fields = fields
             .iter()
             .map(|field| {
-                let field_index = field.index.map_or_else(|| index.map_or(false, |v| v), |v| v);
+                let field_index = field
+                    .index
+                    .map_or_else(|| index.map_or(false, |v| v), |v| v);
 
                 let value = match items.remove(&field.name) {
                     Some(value) => value,
@@ -777,26 +823,21 @@ impl Value {
                             _ => value.clone().avro(),
                         },
                         None => match field.schema {
-                            Schema::Optional(_) => {
-                                Value::Optional(None, None)
-                            }
-                            Schema::Set => {
-                                Value::Set(HashSet::new(), None)
-                            }
-                            Schema::Map(_) => {
-                                Value::Map(HashMap::new(), None)
-                            }
+                            Schema::Optional(_) => Value::Optional(None, None),
+                            Schema::Set => Value::Set(HashSet::new(), None),
+                            Schema::Map(_) => Value::Map(HashMap::new(), None),
                             Schema::LruSet(ref limit) => {
-                                Value::LruSet(HashMap::new(), limit.clone(),None)
+                                Value::LruSet(HashMap::new(), limit.clone(), None)
                             }
 
                             _ => {
                                 return Err(SchemaResolutionError::new(format!(
                                     "missing field {} in record",
                                     field.name
-                                )).into());
+                                ))
+                                .into());
                             }
-                        }
+                        },
                     },
                 };
 
@@ -804,35 +845,57 @@ impl Value {
                 value
                     .resolve_internal(&field.schema, field_index)
                     .map(|value| (field.name.clone(), value))
-            }).collect::<Result<Vec<_>, _>>()?;
+            })
+            .collect::<Result<Vec<_>, _>>()?;
 
-        let index = index.map(|i| ValueSetting{index: i});
+        let index = index.map(|i| ValueSetting { index: i });
 
         Ok(Value::Record(new_fields, index))
     }
 
     // u64 to u64 is default
     // string to u64 is through well defined patterns
-    fn resolve_datetime(self, index: bool, index_kind: &Option<DateIndexKind>) -> Result<Self, Error> {
+    fn resolve_datetime(
+        self,
+        index: bool,
+        index_kind: &Option<DateIndexKind>,
+    ) -> Result<Self, Error> {
         match self {
-            Value::Long(val, _) => Ok(Value::Date(val, Self::get_date_value_setting(index, index_kind))),
-            Value::Date(val, _) => Ok(Value::Date(val, Self::get_date_value_setting(index, index_kind))),
+            Value::Long(val, _) => Ok(Value::Date(
+                val,
+                Self::get_date_value_setting(index, index_kind),
+            )),
+            Value::Date(val, _) => Ok(Value::Date(
+                val,
+                Self::get_date_value_setting(index, index_kind),
+            )),
             Value::String(val, _) => {
                 let dt = chrono::DateTime::parse_from_rfc3339(&val);
                 if dt.is_ok() {
                     let epoch = dt.unwrap().timestamp_millis();
-                    return Ok(Value::Date(epoch, Self::get_date_value_setting(index, index_kind)));
+                    return Ok(Value::Date(
+                        epoch,
+                        Self::get_date_value_setting(index, index_kind),
+                    ));
                 }
 
                 let dt = chrono::DateTime::parse_from_rfc2822(&val);
                 if dt.is_ok() {
                     let epoch = dt.unwrap().timestamp_millis();
-                    return Ok(Value::Date(epoch, Self::get_date_value_setting(index, index_kind)));
+                    return Ok(Value::Date(
+                        epoch,
+                        Self::get_date_value_setting(index, index_kind),
+                    ));
                 }
 
-                Err(failure::err_msg(format!("Couldn't resolve string value {} to date", val)))
+                Err(failure::err_msg(format!(
+                    "Couldn't resolve string value {} to date",
+                    val
+                )))
             }
-            other => Err(SchemaResolutionError::new(format!("Date expected, got {:?}", other)).into()),
+            other => {
+                Err(SchemaResolutionError::new(format!("Date expected, got {:?}", other)).into())
+            }
         }
     }
 
@@ -841,21 +904,20 @@ impl Value {
             Value::Array(items, _) => Ok(Value::Set(
                 items
                     .into_iter()
-                    .map(|item| {
-                        match item {
-                            Value::String(s, _) => Ok(s),
-                            other => Err(SchemaResolutionError::new(format!(
-                                "String expected, got {:?}", other
-                            )))
-                        }
+                    .map(|item| match item {
+                        Value::String(s, _) => Ok(s),
+                        other => Err(SchemaResolutionError::new(format!(
+                            "String expected, got {:?}",
+                            other
+                        ))),
                     })
                     .collect::<Result<HashSet<_>, SchemaResolutionError>>()?,
                 Self::get_value_setting(index),
             )),
             Value::Set(items, _) => Ok(Value::Set(items, Self::get_value_setting(index))),
-            other => Err(SchemaResolutionError::new(format!(
-                "Set expected, got {:?}", other
-            )).into()),
+            other => {
+                Err(SchemaResolutionError::new(format!("Set expected, got {:?}", other)).into())
+            }
         }
     }
 
@@ -879,14 +941,13 @@ impl Value {
                     }
                 }
 
-                Ok(LruValue {
-                    access_time,
-                    count,
-                })
+                Ok(LruValue { access_time, count })
             }
-            other => {
-                Err(SchemaResolutionError::new(format!("Expected LruValue record, got {:?}", other)).into())
-            }
+            other => Err(SchemaResolutionError::new(format!(
+                "Expected LruValue record, got {:?}",
+                other
+            ))
+            .into()),
         }
     }
 
@@ -900,10 +961,14 @@ impl Value {
                 lru_limit,
                 Self::get_value_setting(index),
             )),
-            Value::LruSet(items, _, _) => Ok(Value::LruSet(items, lru_limit, Self::get_value_setting(index))),
-            other => Err(SchemaResolutionError::new(format!(
-                "LruSet expected, got {:?}", other
-            )).into()),
+            Value::LruSet(items, _, _) => Ok(Value::LruSet(
+                items,
+                lru_limit,
+                Self::get_value_setting(index),
+            )),
+            other => {
+                Err(SchemaResolutionError::new(format!("LruSet expected, got {:?}", other)).into())
+            }
         }
     }
 
@@ -918,9 +983,12 @@ impl Value {
         match v {
             Some(value) => {
                 let value = value.resolve_internal(schema, index)?;
-                Ok(Value::Optional(Some(Box::new(value)), Self::get_value_setting(index)))
+                Ok(Value::Optional(
+                    Some(Box::new(value)),
+                    Self::get_value_setting(index),
+                ))
             }
-            None => Ok(Value::Optional(None, Self::get_value_setting(index)))
+            None => Ok(Value::Optional(None, Self::get_value_setting(index))),
         }
     }
 
@@ -963,28 +1031,38 @@ impl Value {
             Value::Array(items, _) => {
                 JsonValue::Array(items.iter().map(Value::json).collect::<_>())
             }
-            Value::Map(items, _) => {
-                JsonValue::Object(items.iter().map(|(key, value)| (key.clone(), value.json())).collect::<_>())
-            }
-            Value::Record(items, _) => {
-                JsonValue::Object(items.iter().map(|(key, value)| (key.clone(), value.json())).collect::<_>())
-            }
+            Value::Map(items, _) => JsonValue::Object(
+                items
+                    .iter()
+                    .map(|(key, value)| (key.clone(), value.json()))
+                    .collect::<_>(),
+            ),
+            Value::Record(items, _) => JsonValue::Object(
+                items
+                    .iter()
+                    .map(|(key, value)| (key.clone(), value.json()))
+                    .collect::<_>(),
+            ),
             Value::Date(t, _) => json!(t),
-            Value::Set(items, _) => {
-                JsonValue::Array(items.iter().map(|item| JsonValue::String(item.to_owned())).collect::<_>())
-            }
-            Value::LruSet(items, _, _) => {
-                JsonValue::Object(items.iter().map(|(key, value)| (key.clone(), value.json())).collect::<_>())
-            }
-            Value::Optional(value, _) => {
-                match value {
-                    Some(v) => v.json(),
-                    None => JsonValue::Null,
-                }
-            }
+            Value::Set(items, _) => JsonValue::Array(
+                items
+                    .iter()
+                    .map(|item| JsonValue::String(item.to_owned()))
+                    .collect::<_>(),
+            ),
+            Value::LruSet(items, _, _) => JsonValue::Object(
+                items
+                    .iter()
+                    .map(|(key, value)| (key.clone(), value.json()))
+                    .collect::<_>(),
+            ),
+            Value::Optional(value, _) => match value {
+                Some(v) => v.json(),
+                None => JsonValue::Null,
+            },
             Value::Max(value, _) => value.json(),
             Value::Counter(n, _) => json!(n),
-            Value::UnionRecord(value,_, _) => value.json()
+            Value::UnionRecord(value, _, _) => value.json(),
         }
     }
 
@@ -996,11 +1074,7 @@ impl Value {
             }
         }
 
-        Err(
-            SchemaResolutionError::new(
-                format!("Unable to convert to u8, got {:?}", int)
-            ).into()
-        )
+        Err(SchemaResolutionError::new(format!("Unable to convert to u8, got {:?}", int)).into())
     }
 
     fn get_value_setting(index: bool) -> Option<ValueSetting> {
@@ -1011,14 +1085,19 @@ impl Value {
         }
     }
 
-    fn get_date_value_setting(index: bool, index_kind: &Option<DateIndexKind>) -> Option<DateValueSetting> {
+    fn get_date_value_setting(
+        index: bool,
+        index_kind: &Option<DateIndexKind>,
+    ) -> Option<DateValueSetting> {
         match index_kind {
-            Some(index_kind) => {
-                Some(DateValueSetting {index, index_kind: index_kind.clone()})
-            },
-            None => {
-                Some(DateValueSetting {index, index_kind: DateIndexKind::Day})
-            }
+            Some(index_kind) => Some(DateValueSetting {
+                index,
+                index_kind: index_kind.clone(),
+            }),
+            None => Some(DateValueSetting {
+                index,
+                index_kind: DateIndexKind::Day,
+            }),
         }
     }
 }
@@ -1057,7 +1136,8 @@ mod tests {
                         Schema::Double,
                         Schema::String,
                         Schema::Int,
-                    ]).unwrap(),
+                    ])
+                    .unwrap(),
                 ),
                 true,
             ),
@@ -1158,41 +1238,51 @@ mod tests {
             lookup: HashMap::new(),
         };
 
-        assert!(
-            Value::Record(vec![
+        assert!(Value::Record(
+            vec![
                 ("a".to_string(), Value::Long(42i64, None)),
                 ("b".to_string(), Value::String("foo".to_string(), None)),
-            ], None).validate(&schema)
-        );
+            ],
+            None
+        )
+        .validate(&schema));
 
-        assert!(
-            !Value::Record(vec![
+        assert!(!Value::Record(
+            vec![
                 ("b".to_string(), Value::String("foo".to_string(), None)),
                 ("a".to_string(), Value::Long(42i64, None)),
-            ], None).validate(&schema)
-        );
+            ],
+            None
+        )
+        .validate(&schema));
 
-        assert!(
-            !Value::Record(vec![
+        assert!(!Value::Record(
+            vec![
                 ("a".to_string(), Value::Boolean(false, None)),
                 ("b".to_string(), Value::String("foo".to_string(), None)),
-            ], None).validate(&schema)
-        );
+            ],
+            None
+        )
+        .validate(&schema));
 
-        assert!(
-            !Value::Record(vec![
+        assert!(!Value::Record(
+            vec![
                 ("a".to_string(), Value::Long(42i64, None)),
                 ("c".to_string(), Value::String("foo".to_string(), None)),
-            ], None).validate(&schema)
-        );
+            ],
+            None
+        )
+        .validate(&schema));
 
-        assert!(
-            !Value::Record(vec![
+        assert!(!Value::Record(
+            vec![
                 ("a".to_string(), Value::Long(42i64, None)),
                 ("b".to_string(), Value::String("foo".to_string(), None)),
                 ("c".to_string(), Value::Null),
-            ], None).validate(&schema)
-        );
+            ],
+            None
+        )
+        .validate(&schema));
     }
 
     #[test]
