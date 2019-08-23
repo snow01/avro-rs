@@ -11,12 +11,12 @@ use std::io::{Cursor, Read, Write};
 ///  cargo test --test union_record_test
 
 const FULL_WRITE_SCHEMA: &str = r#"
-{"name":"new_type","type":"record",
+{"name":"new_type","type":"record","index":true,
 "fields":[
 {"name":"asset_source","type":"string"},
 {"name":"asset_type","type":[
-    {"name":"video","type":"record","fields":[{"name":"asset_id","type":"int"},{"name":"asset_type","type":"int"}]},
-    {"name":"image","type":"record","fields":[{"name":"asset_uid","type":"int"},{"name":"asset_type","type":"int"}]}
+    {"name":"video","type":"record","fields":[{"name":"asset_id","type":"int"},{"name":"asset_type","type":"int","index":false}]},
+    {"name":"image","type":"record","fields":[{"name":"asset_uid","type":"int"},{"name":"asset_type","type":"int","index":false}]}
     ]}]}
 "#;
 
