@@ -14,6 +14,10 @@ const FULL_WRITE_SCHEMA_BIG_SCHEMA: &str = r#"
 {"cf":"post_detailed_asset","name":"post_detailed_asset","doc":"Post Details Assets details","index":true,"domain":"user","type":"record","fields":[{"name":"html_chunk_2","type":"optional","value":"string","index":false},{"name":"embedded_assets","type":"optional","index":false,"value":{"type":"array","items":[{"type":"record","name":"image_asset","fields":[{"name":"id","type":"optional","value":"string","index":false},{"name":"height","type":"optional","value":"int","index":false},{"name":"width","type":"optional","value":"int","index":false},{"name":"format","type":"optional","value":"string","index":false},{"name":"url","type":"optional","value":"string","index":false}]},{"type":"record","name":"video_asset","fields":[{"name":"id","type":"string"},{"name":"video_type","type":"string"},{"name":"video_duration_in_secs","type":"optional","value":"int"},{"name":"https_enabled","type":"optional","value":"boolean"},{"name":"autoplay_enabled","type":"optional","value":"boolean"},{"name":"url","type":"string"},{"name":"src_video_id","type":"optional","value":"string"},{"name":"max_quality","type":"optional","value":"int"},{"name":"max_quality_index","type":"optional","value":"int"},{"name":"live_stream","type":"optional","value":"boolean"},{"name":"apply_pre_buffer_setting","type":"optional","value":"boolean"},{"name":"video_source","type":"optional","value":{"type":"record","name":"video_source","fields":[{"name":"key","type":"string"},{"name":"name","type":"string"},{"name":"add_client_info","type":"boolean"}]}}]},{"type":"record","name":"gallary_asset","fields":[{"name":"gallary","type":"array","items":{"name":"photo_gallery_info","type":"record","fields":[{"name":"id","type":"string"},{"name":"share_url","type":"optional","value":"string"},{"name":"type","type":"optional","value":"string"},{"name":"has_thumbnail","type":"optional","value":"string"},{"name":"photo_url","type":"optional","value":"string"},{"name":"description","type":"optional","value":"string"},{"name":"caption","type":"optional","value":"string"}]}}]}]}}]}
 "#;
 
+const COMPLEX_SCHEMA: &str = r#"
+{"cf":"post_detailed_asset","name":"post_detailed_asset","doc":"Post Details Assets details","index":true,"domain":"user","type":"record","fields":[{"name":"html_chunk_2","type":"optional","value":"string","index":false},{"name":"embedded_assets","type":"optional","index":false,"value":{"type":"array","items":[{"type":"record","name":"image_asset","fields":[{"name":"id","type":"optional","value":"string","index":false},{"name":"height","type":"optional","value":"int","index":false},{"name":"width","type":"optional","value":"int","index":false},{"name":"format","type":"optional","value":"string","index":false},{"name":"url","type":"optional","value":"string","index":false}]},{"type":"record","name":"video_asset","fields":[{"name":"id","type":"string"},{"name":"video_type","type":"string"},{"name":"video_duration_in_secs","type":"optional","value":"int"},{"name":"https_enabled","type":"optional","value":"boolean"},{"name":"autoplay_enabled","type":"optional","value":"boolean"},{"name":"url","type":"string"},{"name":"src_video_id","type":"optional","value":"string"},{"name":"max_quality","type":"optional","value":"int"},{"name":"max_quality_index","type":"optional","value":"int"},{"name":"live_stream","type":"optional","value":"boolean"},{"name":"apply_pre_buffer_setting","type":"optional","value":"boolean"},{"name":"video_source","type":"optional","value":{"type":"record","name":"video_source","fields":[{"name":"key","type":"string"},{"name":"name","type":"string"},{"name":"add_client_info","type":"boolean"}]}}]},{"type":"record","name":"gallary_asset","fields":[{"name":"gallary","type":{"type":"array","items":{"name":"photo_gallery_info","type":"record","fields":[{"name":"id","type":"string"},{"name":"share_url","type":"optional","value":"string"},{"name":"type","type":"optional","value":"string"},{"name":"has_thumbnail","type":"optional","value":"string"},{"name":"photo_url","type":"optional","value":"string"},{"name":"description","type":"optional","value":"string"},{"name":"caption","type":"optional","value":"string"}]}}}]}]}}]}
+"#;
+
 const FULL_WRITE_SCHEMA: &str = r#"
 {"name":"new_type","type":"record","index":true,
 "fields":[
@@ -55,6 +59,13 @@ const PARTIAL_READ_SCHEMA: &str = r#"
 "#;
 
 const ASSET_SOURCE: &str = "1234-src";
+
+#[test]
+fn test_big_complex_union_schema_parsing() {
+    let schema = Schema::parse_str(COMPLEX_SCHEMA).unwrap();
+    println!("{:?}", &schema);
+    println!("{:?}", serde_json::to_string(&schema).unwrap());
+}
 
 #[test]
 fn test_big_union_schema_parsing() {
