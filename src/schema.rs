@@ -11,8 +11,9 @@ use serde::Deserialize;
 use serde_json::{self, Map, Value as JsonValue};
 use time::Duration;
 
-use crate::types::Value as AvroValue;
-use crate::util::MapHelper;
+use crate::types::{Value as AvroValue, DecaySetting};
+use crate::util::{MapHelper, vec_from_json_value};
+use crate::util::string_from_json_value;
 
 lazy_static! {
     static ref LRU_LIMIT_REGEX:Regex = Regex::new("(?P<value>[[:digit:]]+)[[:space:]]*(?P<type>days|hour|minute)[[:space:]]*(?:;[[:space:]]*(?P<count>[[:digit:]]+)[[:space:]]*)?$").unwrap();
@@ -122,6 +123,8 @@ pub enum Schema {
     Counter,
 
     Max(Box<Schema>),
+
+    Decay(Box<Schema>,DecayMeta)
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -158,6 +161,40 @@ impl Serialize for LruLimit {
     }
 }
 
+#[derive(Clone, Debug, PartialEq,)]
+pub struct DecayMeta {
+    decay_type: String,
+    decay_rate: String,
+    fields : Vec<String>
+}
+
+impl Serialize for DecayMeta {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: Serializer,
+    {
+        let mut map = serializer.serialize_map(None)?;
+        map.serialize_entry("decay_type", &self.decay_type)?;
+        map.serialize_entry("decay_rate", &self.decay_rate)?;
+        map.serialize_entry("fields", &self.fields)?;
+        map.end()
+    }
+}
+
+impl DecayMeta {
+    pub fn to_decay_settings(&self) -> Option<DecaySetting> {
+        if self.decay_type.is_empty() || self.decay_rate.is_empty() {
+            return None;
+        }
+        Some(DecaySetting{ decay_type: self.decay_type.clone(), decay_rate: self.decay_rate.clone() })
+
+    }
+}
+
+
+
+
+
 /// This type is used to simplify enum variant comparison between `Schema` and `types::Value`.
 /// It may have utility as part of the public API, but defining as `pub(crate)` for now.
 ///
@@ -189,6 +226,7 @@ pub(crate) enum SchemaKind {
     Optional,
     Counter,
     Max,
+    Decay
 }
 
 impl<'a> From<&'a Schema> for SchemaKind {
@@ -217,6 +255,7 @@ impl<'a> From<&'a Schema> for SchemaKind {
             Schema::Counter => SchemaKind::Counter,
             Schema::Max(_) => SchemaKind::Max,
             Schema::UnionRecord(_) => SchemaKind::UnionRecord,
+            Schema::Decay(_,_) => SchemaKind::Decay
         }
     }
 }
@@ -246,6 +285,7 @@ impl<'a> From<&'a AvroValue> for SchemaKind {
             AvroValue::Counter(_, _) => SchemaKind::Counter,
             AvroValue::Max(_, _) => SchemaKind::Max,
             AvroValue::UnionRecord(_, _, _) => SchemaKind::UnionRecord,
+            AvroValue::DecayRecord(_, _) => SchemaKind::Decay
         }
     }
 }
@@ -399,6 +439,20 @@ impl RecordField {
             position,
             index: field.index(),
         })
+    }
+}
+
+impl From<(String, Schema,usize)> for RecordField {
+    fn from((name,schema, position): (String, Schema, usize)) -> Self {
+        RecordField {
+            name,
+            doc: None,
+            default: None,
+            schema,
+            order: RecordFieldOrder::Ascending,
+            position,
+            index: None,
+        }
     }
 }
 
@@ -598,6 +652,7 @@ impl Schema {
                 "lru_set" => Schema::parse_lru_set(complex),
                 "optional" => Schema::parse_optional(complex),
                 "max" => Schema::parse_max(complex),
+                "decay" => Schema::parse_decay(complex),
                 other => Schema::parse_primitive(other),
             },
             Some(&JsonValue::Object(ref data)) => Schema::parse_complex(data) /*match data.get("type") {
@@ -839,6 +894,49 @@ impl Schema {
             .map(|schema| Schema::Max(Box::new(schema)))
     }
 
+    fn parse_decay(complex: &Map<String, JsonValue>) -> Result<Self, Error> {
+        let decay_type = complex.get("decay_type")
+            .ok_or_else(|| ParseSchemaError::new("No `decay_type` defined for decay"))?;
+        let decay_rate = complex.get("decay_rate")
+            .ok_or_else(|| ParseSchemaError::new("No `decay_rate` defined for decay"))?;
+        let fields = complex.get("fields")
+            .ok_or_else(|| ParseSchemaError::new("No `fields` defined for decay"))?;
+
+        let decay_type = string_from_json_value(decay_type,"Invalid `decay_type` defined for decay")?;
+        let decay_rate = string_from_json_value(decay_rate,"Invalid `decay_rate` defined for decay")?;
+        let fields= vec_from_json_value(fields, "Invalid `fields` defined for decay")?;
+
+        let mut decay_fields = Vec::with_capacity(fields.len() + 1 );
+        decay_fields.push("timestamp".to_string()); // Todo Sohan => check duplicates
+        decay_fields.append(&mut fields.clone());
+
+
+        let mut record_fields = Vec::with_capacity(fields.len() +1 );
+        let mut lookup = HashMap::new();
+        for (position,f) in decay_fields.iter().enumerate() {
+            let schema_kind = if f.eq("timestamp") { Schema::Long} else { Schema::Optional(Box::new(Schema::Double))};
+            let record_field = (f.to_string(),schema_kind,position).into();
+            record_fields.push(record_field);
+            lookup.insert(f.to_string(),position);
+        }
+
+        let decay_meta  = DecayMeta {
+            decay_rate,
+            decay_type,
+            fields
+        };
+
+        let record = Schema::Record {
+            name: Name::new("decay"), // Todo : Sohan
+            doc: None,
+            fields:record_fields,
+            lookup,
+        };
+
+
+        Ok(Schema::Decay(Box::new(record), decay_meta))
+    }
+
     pub fn get_type(&self) -> String {
         match self {
             Schema::Null => String::from("null"),
@@ -862,6 +960,7 @@ impl Schema {
             Schema::Counter => String::from("counter"),
             Schema::Max(_) => String::from("max"),
             Schema::UnionRecord(_) => String::from("union_record"),
+            Schema::Decay(_,_) => String::from("decay"),
         }
     }
 }
@@ -1006,6 +1105,15 @@ impl Serialize for Schema {
                     seq.serialize_element(v)?;
                 }
                 seq.end()
+            }
+            Schema::Decay(ref _inner_schema,ref decay_meta) => {
+                // this will used while reading (should be same as json when creating write schema)
+                let mut map = serializer.serialize_map(None)?;
+                map.serialize_entry("type","decay")?;
+                map.serialize_entry("decay_type",&decay_meta.decay_type)?;
+                map.serialize_entry("decay_rate",&decay_meta.decay_rate)?;
+                map.serialize_entry("fields",&decay_meta.fields)?;
+                map.end()
             }
         }
     }

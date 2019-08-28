@@ -536,7 +536,7 @@ pub use crate::reader::{from_avro_datum, Reader};
 pub use crate::schema::{LruLimit, ParseSchemaError, Schema};
 pub use crate::ser::to_value;
 pub use crate::types::SchemaResolutionError;
-pub use crate::util::{max_allocation_bytes, DecodeError};
+pub use crate::util::{max_allocation_bytes, DecodeError, read_file, write_file};
 pub use crate::writer::{to_avro_datum, ValidationError, Writer};
 
 #[cfg(test)]
