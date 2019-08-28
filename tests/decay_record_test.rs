@@ -6,12 +6,14 @@ use avro_rs::types::ToAvro;
 use avro_rs::{read_file, write_file};
 use std::io::Cursor;
 
+///  cargo test --test decay_record_test
+
 const SIMPLE_SCHEMA: &str = r#"
-{"type":"record","name":"scores","fields":[{"name":"h1_relative","type":{"type":"decay","decay_type":"relative","decay_rate":"1 hour","fields":["click","view"]}}]}
+{"type":"record","cf":"scores","name":"scores","fields":[{"name":"h1_relative","type":{"type":"decay","decay_type":"relative","decay_rate":"1 hours","fields":["click","view"]}}]}
 "#;
 
 const MULTI_FIELD_SCHEMA : &str = r#"
-{"type":"record","name":"scores","cf":"decay","fields":[{"name":"h1_relative","type":{"type":"decay","decay_type":"relative","decay_rate":"1 hour","fields":["click","view"]}},{"name":"h4_relative","type":{"type":"decay","decay_type":"relative","decay_rate":"4 hour","fields":["click","view"]}}]}
+{"type":"record","cf":"scores","name":"scores","cf":"decay","fields":[{"name":"h1_relative","type":{"type":"decay","decay_type":"relative","decay_rate":"1 hours","fields":["click","view"]}},{"name":"h4_relative","type":{"type":"decay","decay_type":"relative","decay_rate":"4 hours","fields":["click","view"]}}]}
 
 "#;
 
