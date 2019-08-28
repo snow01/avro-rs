@@ -4,9 +4,9 @@ extern crate serde_json;
 
 use avro_rs::types::{Record, ToAvro, Value as AvroValue, Value};
 use avro_rs::{from_avro_datum, Codec, Reader, Schema, Writer};
+use avro_rs::{read_file, write_file};
 use serde_json::value::Value as JsonValue;
-use std::fs::File;
-use std::io::{Cursor, Read, Write};
+use std::io::Cursor;
 
 ///  cargo test --test union_record_test
 
@@ -327,16 +327,4 @@ fn write_avro_bytes_for_java() {
     assert!(write_file(path, &input).is_ok());
 }
 
-fn read_file(path: &str) -> std::io::Result<Vec<u8>> {
-    let mut file = File::open(path)?;
-    let mut data = Vec::new();
-    file.read_to_end(&mut data)?;
-    return Ok(data);
-}
 
-fn write_file(path: &str, data: &[u8]) -> std::io::Result<()> {
-    let mut file = File::create(path)?;
-    file.write_all(data)?;
-    file.flush()?;
-    Ok(())
-}

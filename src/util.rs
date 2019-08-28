@@ -1,10 +1,11 @@
 use std::i64;
-use std::io::Read;
+use std::io::{Read, Write};
 use std::sync::{Once, ONCE_INIT};
 
 use failure::Error;
 use serde_json::{Map, Value};
 use crate::{ParseSchemaError};
+use std::fs::File;
 
 /// Maximum number of bytes that can be allocated when decoding
 /// Avro-encoded values. This is a protection against ill-formed
@@ -198,7 +199,19 @@ pub fn vec_from_json_value(v: &Value, err_msg: &str) -> Result<Vec<String>,Error
     else { Err(ParseSchemaError::new(err_msg).into())}
 }
 
+pub fn read_file(path: &str) -> std::io::Result<Vec<u8>> {
+    let mut file = File::open(path)?;
+    let mut data = Vec::new();
+    file.read_to_end(&mut data)?;
+    return Ok(data);
+}
 
+pub fn write_file(path: &str, data: &[u8]) -> std::io::Result<()> {
+    let mut file = File::create(path)?;
+    file.write_all(data)?;
+    file.flush()?;
+    Ok(())
+}
 
 #[cfg(test)]
 mod tests {

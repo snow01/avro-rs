@@ -904,7 +904,7 @@ impl Schema {
 
         let decay_type = string_from_json_value(decay_type,"Invalid `decay_type` defined for decay")?;
         let decay_rate = string_from_json_value(decay_rate,"Invalid `decay_rate` defined for decay")?;
-        let mut fields= vec_from_json_value(fields, "Invalid `fields` defined for decay")?;
+        let fields= vec_from_json_value(fields, "Invalid `fields` defined for decay")?;
 
         let mut decay_fields = Vec::with_capacity(fields.len() + 1 );
         decay_fields.push("timestamp".to_string()); // Todo Sohan => check duplicates
@@ -1106,13 +1106,13 @@ impl Serialize for Schema {
                 }
                 seq.end()
             }
-            Schema::Decay(ref inner_schema,ref decay_meta) => {
+            Schema::Decay(ref _inner_schema,ref decay_meta) => {
                 // this will used while reading (should be same as json when creating write schema)
                 let mut map = serializer.serialize_map(None)?;
-                map.serialize_entry("type","decay");
-                map.serialize_entry("decay_type",&decay_meta.decay_type);
-                map.serialize_entry("decay_rate",&decay_meta.decay_rate);
-                map.serialize_entry("fields",&decay_meta.fields);
+                map.serialize_entry("type","decay")?;
+                map.serialize_entry("decay_type",&decay_meta.decay_type)?;
+                map.serialize_entry("decay_rate",&decay_meta.decay_rate)?;
+                map.serialize_entry("fields",&decay_meta.fields)?;
                 map.end()
             }
         }
