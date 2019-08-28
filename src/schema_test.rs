@@ -1,4 +1,6 @@
+#![allow(unused_imports)]
 use std::borrow::ToOwned;
+#[allow(unused_imports)]
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::{Read, Write};

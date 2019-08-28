@@ -7,9 +7,7 @@ use std::u8;
 use failure::Error;
 use serde_json::Value as JsonValue;
 
-use crate::schema::{
-    DateIndexKind, RecordField, Schema, SchemaKind, UnionRecordSchema, UnionSchema,
-};
+use crate::schema::{DateIndexKind, RecordField, Schema, SchemaKind, UnionRecordSchema, UnionSchema, DecayMeta};
 use crate::LruLimit;
 use std::ops::Deref;
 
@@ -71,6 +69,12 @@ impl Indexable for DateValueSetting {
     fn index(&self) -> bool {
         self.index
     }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct DecaySetting {
+    pub decay_type: String,
+    pub decay_rate: String,
 }
 
 /// Represents any valid Avro value
@@ -149,6 +153,8 @@ pub enum Value {
 
     /// A max avro value.
     Max(Box<Value>, Option<ValueSetting>),
+
+    DecayRecord(Box<Value>,Option<DecaySetting>)
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -443,7 +449,15 @@ impl Value {
 
             (&Value::Counter(_, _), &Schema::Counter) => true,
 
-            _ => false,
+            (&Value::DecayRecord(ref value, _), &Schema::Decay(ref schema,_)) => {
+                if let (Schema::Record {..},Value::Record(..)) = (&**schema,&**value) {
+                    value.validate(schema)
+                }else {
+                    false
+                }
+
+            }
+             _ => false
         }
     }
 
@@ -493,6 +507,27 @@ impl Value {
             Schema::Counter => self.resolve_counter(false),
             // Todo(FIXME ::(sohan) pending union record) - would it come to this ?
             Schema::UnionRecord(ref inner) => self.resolve_union_record(inner, false),
+            Schema::Decay(ref inner,ref decay_meta) => self.resolve_decay_record(inner,false,decay_meta)
+        }
+    }
+
+    fn resolve_decay_record(self, schema: &Schema, index: bool,decay_meta: &DecayMeta) -> Result<Self, Error> { // Todo : Sohan
+        let decay_settings = decay_meta.to_decay_settings();
+        match self {
+            Value::DecayRecord(value,_) => {
+                let value  = value.resolve_internal(schema,index)?;
+                Ok(Value::DecayRecord(Box::new(value),decay_settings))
+            },
+            Value::Map(map,_)=> {
+                let value = Value::Map(map, None);
+                let value = value.resolve_internal(schema, index)?;
+                Ok(Value::DecayRecord(Box::new(value),decay_settings))
+            }
+
+            other => Err(SchemaResolutionError::new(format!(
+                "DecayRecord or map expected, got {:?}",
+                other
+            )).into()),
         }
     }
 
@@ -541,6 +576,7 @@ impl Value {
             Schema::Counter => self.resolve_counter(index),
             Schema::Max(ref inner) => self.resolve_max(inner, index),
             Schema::UnionRecord(ref inner) => self.resolve_union_record(inner, index),
+            Schema::Decay(ref inner,ref decay_meta) => self.resolve_decay_record(inner,false,decay_meta) // Todo : Sohan
         }
     }
 
@@ -1063,6 +1099,7 @@ impl Value {
             Value::Max(value, _) => value.json(),
             Value::Counter(n, _) => json!(n),
             Value::UnionRecord(value, _, _) => value.json(),
+            Value::DecayRecord(value, _) => value.json(),
         }
     }
 
@@ -1100,6 +1137,10 @@ impl Value {
             }),
         }
     }
+}
+
+pub fn create_decay_record(r: Record,decay_settings : Option<DecaySetting>)-> Value {
+    Value::DecayRecord(Box::new(Value::Record(r.fields,None)),decay_settings)
 }
 
 #[cfg(test)]

@@ -4,6 +4,7 @@ use std::sync::{Once, ONCE_INIT};
 
 use failure::Error;
 use serde_json::{Map, Value};
+use crate::{ParseSchemaError};
 
 /// Maximum number of bytes that can be allocated when decoding
 /// Avro-encoded values. This is a protection against ill-formed
@@ -176,6 +177,28 @@ pub fn safe_len(len: usize) -> Result<usize, Error> {
         .into())
     }
 }
+
+
+pub fn string_from_json_value(v: &Value,err_msg: &str) -> Result<String,Error> {
+    if let Value::String(s) = v { Ok(s.clone())} else { Err(ParseSchemaError::new(err_msg).into())}
+}
+
+pub fn vec_from_json_value(v: &Value, err_msg: &str) -> Result<Vec<String>,Error> {
+    if let Value::Array(vec) = v {
+        let mut h  = Vec::with_capacity(vec.len());
+        for v in vec {
+            let v = string_from_json_value(v, "value must be string")?;
+            if h.contains(&v) {
+                return Err(ParseSchemaError::new(format!("duplicate field {:?} found in decay fields",&v)).into());
+            }
+            h.push(v);
+        };
+        Ok(h)
+    }
+    else { Err(ParseSchemaError::new(err_msg).into())}
+}
+
+
 
 #[cfg(test)]
 mod tests {
