@@ -6,3 +6,5 @@ Cargo.lock
 *.iml
 precommit_venv/
 foo.avro
+!/tests/batch_test.rs
+tests/batch_test.rs
