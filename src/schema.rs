@@ -1234,6 +1234,7 @@ fn field_ordering_position(field: &str) -> Option<usize> {
         "items" => 5,
         "values" => 6,
         "size" => 7,
+        "value" => 8,
         _ => return None,
     };
 
