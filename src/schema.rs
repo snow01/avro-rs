@@ -1194,6 +1194,13 @@ fn pcf_map(schema: &Map<String, serde_json::Value>) -> String {
             continue;
         }
 
+
+        if k == "index" {
+            if pcf_is_indexed(v) { fields.push((k, format!("{}:{}", pcf_string(k), pcf_string("true")))); }
+            continue;
+        }
+
+
         // For anything else, recursively process the result.
         fields.push((
             k,
@@ -1209,6 +1216,15 @@ fn pcf_map(schema: &Map<String, serde_json::Value>) -> String {
         .collect::<Vec<_>>()
         .join(",");
     format!("{{{}}}", inter)
+}
+
+fn pcf_is_indexed(value: &JsonValue) -> bool {
+    if let serde_json::Value::Bool(index) = value {
+        if *index {
+            return true;
+        }
+    }
+    false
 }
 
 fn pcf_array(arr: &[serde_json::Value]) -> String {
@@ -1235,6 +1251,7 @@ fn field_ordering_position(field: &str) -> Option<usize> {
         "values" => 6,
         "size" => 7,
         "value" => 8,
+        "index" => 9,
         _ => return None,
     };
 
