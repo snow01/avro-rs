@@ -593,12 +593,12 @@ impl Value {
                     Self::get_value_setting(index),
                 ))
             }
-            Value::Map(mut map, _) => {
-                if let Some(t) = map.remove("_type") {
-                    Value::resolve_map_for_union_record(schema, map, t, index)
-                } else {
-                    Err(SchemaResolutionError::new("No _type field found to resolve map").into())
-                }
+            Value::Map(map, _) => {
+                let r_type = map.get("_type")
+                    .ok_or_else(|| SchemaResolutionError::new("No _type field found to resolve map"))
+                    .map(|v|v.clone())?;
+
+                Value::resolve_map_for_union_record(schema, map, r_type, index)
             }
             other => Err(SchemaResolutionError::new(format!(
                 "UnionRecord expected, got {:?}",
