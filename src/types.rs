@@ -7,7 +7,9 @@ use std::u8;
 use failure::Error;
 use serde_json::Value as JsonValue;
 
-use crate::schema::{DateIndexKind, RecordField, Schema, SchemaKind, UnionRecordSchema, UnionSchema, DecayMeta};
+use crate::schema::{
+    DateIndexKind, DecayMeta, RecordField, Schema, SchemaKind, UnionRecordSchema, UnionSchema,
+};
 use crate::LruLimit;
 use std::ops::Deref;
 
@@ -154,7 +156,7 @@ pub enum Value {
     /// A max avro value.
     Max(Box<Value>, Option<ValueSetting>),
 
-    DecayRecord(Box<Value>,Option<DecaySetting>)
+    DecayRecord(Box<Value>, Option<DecaySetting>),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -258,7 +260,10 @@ where
     fn avro(self) -> Value {
         Value::Map(
             self.into_iter()
-                .map(|(key, value)| (key, value.avro()))
+                .map(|(mut key, value)| {
+                    key.make_ascii_uppercase();
+                    (key, value.avro())
+                })
                 .collect::<_>(),
             None,
         )
@@ -272,7 +277,7 @@ where
     fn avro(self) -> Value {
         Value::Map(
             self.into_iter()
-                .map(|(key, value)| (key.to_owned(), value.avro()))
+                .map(|(key, value)| (key.to_ascii_uppercase(), value.avro()))
                 .collect::<_>(),
             None,
         )
@@ -366,7 +371,10 @@ impl ToAvro for JsonValue {
             JsonValue::Object(items) => Value::Map(
                 items
                     .into_iter()
-                    .map(|(key, value)| (key, value.avro()))
+                    .map(|(mut key, value)| {
+                        key.make_ascii_uppercase();
+                        (key, value.avro())
+                    })
                     .collect::<_>(),
                 None,
             ),
@@ -449,15 +457,14 @@ impl Value {
 
             (&Value::Counter(_, _), &Schema::Counter) => true,
 
-            (&Value::DecayRecord(ref value, _), &Schema::Decay(ref schema,_)) => {
-                if let (Schema::Record {..},Value::Record(..)) = (&**schema,&**value) {
+            (&Value::DecayRecord(ref value, _), &Schema::Decay(ref schema, _)) => {
+                if let (Schema::Record { .. }, Value::Record(..)) = (&**schema, &**value) {
                     value.validate(schema)
-                }else {
+                } else {
                     false
                 }
-
             }
-             _ => false
+            _ => false,
         }
     }
 
@@ -507,27 +514,36 @@ impl Value {
             Schema::Counter => self.resolve_counter(false),
             // Todo(FIXME ::(sohan) pending union record) - would it come to this ?
             Schema::UnionRecord(ref inner) => self.resolve_union_record(inner, false),
-            Schema::Decay(ref inner,ref decay_meta) => self.resolve_decay_record(inner,false,decay_meta)
+            Schema::Decay(ref inner, ref decay_meta) => {
+                self.resolve_decay_record(inner, false, decay_meta)
+            }
         }
     }
 
-    fn resolve_decay_record(self, schema: &Schema, index: bool,decay_meta: &DecayMeta) -> Result<Self, Error> { // Todo : Sohan
+    fn resolve_decay_record(
+        self,
+        schema: &Schema,
+        index: bool,
+        decay_meta: &DecayMeta,
+    ) -> Result<Self, Error> {
+        // Todo : Sohan
         let decay_settings = decay_meta.to_decay_settings();
         match self {
-            Value::DecayRecord(value,_) => {
-                let value  = value.resolve_internal(schema,index)?;
-                Ok(Value::DecayRecord(Box::new(value),decay_settings))
-            },
-            Value::Map(map,_)=> {
+            Value::DecayRecord(value, _) => {
+                let value = value.resolve_internal(schema, index)?;
+                Ok(Value::DecayRecord(Box::new(value), decay_settings))
+            }
+            Value::Map(map, _) => {
                 let value = Value::Map(map, None);
                 let value = value.resolve_internal(schema, index)?;
-                Ok(Value::DecayRecord(Box::new(value),decay_settings))
+                Ok(Value::DecayRecord(Box::new(value), decay_settings))
             }
 
             other => Err(SchemaResolutionError::new(format!(
                 "DecayRecord or map expected, got {:?}",
                 other
-            )).into()),
+            ))
+            .into()),
         }
     }
 
@@ -576,7 +592,9 @@ impl Value {
             Schema::Counter => self.resolve_counter(index),
             Schema::Max(ref inner) => self.resolve_max(inner, index),
             Schema::UnionRecord(ref inner) => self.resolve_union_record(inner, index),
-            Schema::Decay(ref inner,ref decay_meta) => self.resolve_decay_record(inner,false,decay_meta) // Todo : Sohan
+            Schema::Decay(ref inner, ref decay_meta) => {
+                self.resolve_decay_record(inner, false, decay_meta)
+            } // Todo : Sohan
         }
     }
 
@@ -594,9 +612,12 @@ impl Value {
                 ))
             }
             Value::Map(map, _) => {
-                let r_type = map.get("_type")
-                    .ok_or_else(|| SchemaResolutionError::new("No _type field found to resolve map"))
-                    .map(|v|v.clone())?;
+                let r_type = map
+                    .get("_type")
+                    .ok_or_else(|| {
+                        SchemaResolutionError::new("No _type field found to resolve map")
+                    })
+                    .map(|v| v.clone())?;
 
                 Value::resolve_map_for_union_record(schema, map, r_type, index)
             }
@@ -1139,8 +1160,8 @@ impl Value {
     }
 }
 
-pub fn create_decay_record(r: Record,decay_settings : Option<DecaySetting>)-> Value {
-    Value::DecayRecord(Box::new(Value::Record(r.fields,None)),decay_settings)
+pub fn create_decay_record(r: Record, decay_settings: Option<DecaySetting>) -> Value {
+    Value::DecayRecord(Box::new(Value::Record(r.fields, None)), decay_settings)
 }
 
 #[cfg(test)]
