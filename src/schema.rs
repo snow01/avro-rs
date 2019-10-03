@@ -11,7 +11,8 @@ use serde::Deserialize;
 use serde_json::{self, Map, Value as JsonValue};
 use time::Duration;
 
-use crate::types::{Value as AvroValue, DecaySetting};
+
+use crate::types::{Value as AvroValue, DecaySetting, ValueComparison, ValueSetting, VALUE_COMPARATOR};
 use crate::util::{MapHelper, vec_from_json_value};
 use crate::util::string_from_json_value;
 
@@ -124,7 +125,9 @@ pub enum Schema {
 
     Max(Box<Schema>),
 
-    Decay(Box<Schema>,DecayMeta)
+    Decay(Box<Schema>,DecayMeta),
+
+    ValueComparator(Box<Schema>, ValueComparison)
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -226,7 +229,8 @@ pub(crate) enum SchemaKind {
     Optional,
     Counter,
     Max,
-    Decay
+    Decay,
+    ValueComparator
 }
 
 impl<'a> From<&'a Schema> for SchemaKind {
@@ -255,7 +259,8 @@ impl<'a> From<&'a Schema> for SchemaKind {
             Schema::Counter => SchemaKind::Counter,
             Schema::Max(_) => SchemaKind::Max,
             Schema::UnionRecord(_) => SchemaKind::UnionRecord,
-            Schema::Decay(_,_) => SchemaKind::Decay
+            Schema::Decay(_,_) => SchemaKind::Decay,
+            Schema::ValueComparator(_, _) => SchemaKind::ValueComparator
         }
     }
 }
@@ -285,7 +290,8 @@ impl<'a> From<&'a AvroValue> for SchemaKind {
             AvroValue::Counter(_, _) => SchemaKind::Counter,
             AvroValue::Max(_, _) => SchemaKind::Max,
             AvroValue::UnionRecord(_, _, _) => SchemaKind::UnionRecord,
-            AvroValue::DecayRecord(_, _) => SchemaKind::Decay
+            AvroValue::DecayRecord(_, _) => SchemaKind::Decay,
+            AvroValue::ValueComparator(_, _, _) => SchemaKind::ValueComparator
         }
     }
 }
@@ -453,6 +459,24 @@ impl From<(String, Schema,usize)> for RecordField {
             position,
             index: None,
         }
+    }
+}
+
+fn record_schema_from_fields(name: &str, fields: Vec<(String,Schema,Option<ValueSetting>)>) -> Schema {
+    let mut record_fields: Vec<RecordField> = Vec::with_capacity(fields.len());
+    let mut lookup = HashMap::with_capacity(fields.len());
+    for (position,(name,schema, value_settings)) in fields.into_iter().enumerate() {
+        let mut record_field : RecordField = (name.clone(), schema, position).into();
+        record_field.index = value_settings.map(|v| v.index);
+        record_fields.push(record_field);
+        lookup.insert(name,position);
+    }
+
+    Schema::Record {
+        name: Name::new(name),
+        doc: None,
+        fields: record_fields,
+        lookup
     }
 }
 
@@ -653,6 +677,7 @@ impl Schema {
                 "optional" => Schema::parse_optional(complex),
                 "max" => Schema::parse_max(complex),
                 "decay" => Schema::parse_decay(complex),
+                VALUE_COMPARATOR => Schema::parse_value_comparator(complex),
                 other => Schema::parse_primitive(other),
             },
             Some(&JsonValue::Object(ref data)) => Schema::parse_complex(data) /*match data.get("type") {
@@ -894,6 +919,28 @@ impl Schema {
             .map(|schema| Schema::Max(Box::new(schema)))
     }
 
+    fn parse_value_comparator(complex: &Map<String, JsonValue>) -> Result<Self, Error> {
+        let condition = complex.get("condition")
+            .ok_or_else(|| ParseSchemaError::new("No `condition` define for 'value_comparator'"))?;
+        let condition = serde_json::from_value::<ValueComparison>(condition.clone())
+            .map_err(|e|failure::err_msg(format!("invalid condition value provided. Error {} ",e)))?;
+
+        let data_schema = complex.get("value")
+            .ok_or_else(|| ParseSchemaError::new("No `value` defined for 'value_comparator'").into())
+            .and_then(|value| Schema::parse(value))?;
+
+        let mut fields = Vec::with_capacity(2);
+        fields.push((String::from("_value"), Schema::Long,Some(ValueSetting { index: false})));
+        fields.push((String::from("data"), data_schema,None));
+
+        let inner = record_schema_from_fields(VALUE_COMPARATOR, fields);
+        let schema = Schema::ValueComparator(Box::new(inner), condition);
+
+        Ok(schema)
+    }
+
+
+
     fn parse_decay(complex: &Map<String, JsonValue>) -> Result<Self, Error> {
         let decay_type = complex.get("decay_type")
             .ok_or_else(|| ParseSchemaError::new("No `decay_type` defined for decay"))?;
@@ -961,6 +1008,7 @@ impl Schema {
             Schema::Max(_) => String::from("max"),
             Schema::UnionRecord(_) => String::from("union_record"),
             Schema::Decay(_,_) => String::from("decay"),
+            Schema::ValueComparator(_, _) => VALUE_COMPARATOR.to_string(),
         }
     }
 }
@@ -1114,6 +1162,21 @@ impl Serialize for Schema {
                 map.serialize_entry("decay_rate",&decay_meta.decay_rate)?;
                 map.serialize_entry("fields",&decay_meta.fields)?;
                 map.end()
+            },
+
+            Schema::ValueComparator(ref inner, condition) => {
+                // this will used while reading (should be same as json when creating write schema)
+                let mut map = serializer.serialize_map(Some(2))?;
+                map.serialize_entry("type", VALUE_COMPARATOR)?;
+                map.serialize_entry("condition", &condition)?;
+                if let Schema::Record{fields, lookup, ..} = &**inner {
+                    if let Some(pos) = lookup.get("data"){
+                        if let Some(field) = fields.get(pos.clone()){
+                            map.serialize_entry("value", &field.schema)?;
+                        }
+                    }
+                }
+                map.end()
             }
         }
     }
@@ -1252,6 +1315,7 @@ fn field_ordering_position(field: &str) -> Option<usize> {
         "size" => 7,
         "value" => 8,
         "index" => 9,
+        "condition" => 10 ,
         _ => return None,
     };
 

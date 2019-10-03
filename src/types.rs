@@ -77,6 +77,16 @@ pub struct DecaySetting {
     pub decay_rate: String,
 }
 
+pub const VALUE_COMPARATOR: &str  = "value_comparator" ;
+#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum ValueComparison {
+    EQ,
+    LT,
+    LTE,
+    GT,
+    GTE
+}
+
 /// Represents any valid Avro value
 /// More information about Avro values can be found in the
 /// [Avro Specification](https://avro.apache.org/docs/current/spec.html#schemas)
@@ -154,7 +164,9 @@ pub enum Value {
     /// A max avro value.
     Max(Box<Value>, Option<ValueSetting>),
 
-    DecayRecord(Box<Value>,Option<DecaySetting>)
+    DecayRecord(Box<Value>,Option<DecaySetting>),
+
+    ValueComparator(Box<Value>, ValueComparison, Option<ValueSetting>)
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -457,9 +469,23 @@ impl Value {
                 }
 
             }
+            (&Value::ValueComparator(ref value, value_cond, _), &Schema::ValueComparator(ref schema, schema_cond)) => {
+                if value_cond != schema_cond {
+                    return false ;
+                }
+                value.validate_exact_record_type(schema)
+            }
              _ => false
         }
     }
+
+    fn validate_exact_record_type(&self, schema: &Schema) -> bool {
+        if let (Schema::Record {..},Value::Record(..)) = (schema,self) {
+           return self.validate(schema) ;
+        }
+        false
+    }
+
 
     /// Attempt to perform schema resolution on the value, with the given
     /// [Schema](../schema/enum.Schema.html).
@@ -507,8 +533,20 @@ impl Value {
             Schema::Counter => self.resolve_counter(false),
             // Todo(FIXME ::(sohan) pending union record) - would it come to this ?
             Schema::UnionRecord(ref inner) => self.resolve_union_record(inner, false),
-            Schema::Decay(ref inner,ref decay_meta) => self.resolve_decay_record(inner,false,decay_meta)
+            Schema::Decay(ref inner,ref decay_meta) => self.resolve_decay_record(inner,false,decay_meta),
+            Schema::ValueComparator(ref inner, condition) => self.resolve_value_comparator(inner, condition, false)
         }
+    }
+
+    fn resolve_value_comparator(self, schema: &Schema, condition: ValueComparison, index: bool) ->  Result<Self, Error> {
+        let value = match self {
+            Value::ValueComparator(inner, _, _) =>  inner.resolve_internal(schema, index),
+            Value::Map(map,_)=> Value::Map(map, None).resolve_internal(schema, index),
+            other => Err(SchemaResolutionError::new(format!("ValueComparator or map expected, got {:?}", other)).into()),
+        }?;
+
+
+        Ok(Value::ValueComparator(Box::new(value), condition, None))
     }
 
     fn resolve_decay_record(self, schema: &Schema, index: bool,decay_meta: &DecayMeta) -> Result<Self, Error> { // Todo : Sohan
@@ -576,7 +614,9 @@ impl Value {
             Schema::Counter => self.resolve_counter(index),
             Schema::Max(ref inner) => self.resolve_max(inner, index),
             Schema::UnionRecord(ref inner) => self.resolve_union_record(inner, index),
-            Schema::Decay(ref inner,ref decay_meta) => self.resolve_decay_record(inner,false,decay_meta) // Todo : Sohan
+            Schema::Decay(ref inner,ref decay_meta) => self.resolve_decay_record(inner,false,decay_meta),
+            Schema::ValueComparator(ref inner, condition) => self.resolve_value_comparator(inner, condition, index) // Todo : Sohan
+
         }
     }
 
@@ -1100,6 +1140,7 @@ impl Value {
             Value::Counter(n, _) => json!(n),
             Value::UnionRecord(value, _, _) => value.json(),
             Value::DecayRecord(value, _) => value.json(),
+            Value::ValueComparator(value, _, _) => value.json(), // Todo : Sohan(visit it later)
         }
     }
 
@@ -1114,7 +1155,7 @@ impl Value {
         Err(SchemaResolutionError::new(format!("Unable to convert to u8, got {:?}", int)).into())
     }
 
-    fn get_value_setting(index: bool) -> Option<ValueSetting> {
+    pub fn get_value_setting(index: bool) -> Option<ValueSetting> {
         if !index {
             None
         } else {

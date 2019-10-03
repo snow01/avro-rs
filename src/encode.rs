@@ -157,6 +157,11 @@ pub fn encode_ref(value: &Value, schema: &Schema, buffer: &mut Vec<u8>) {
             if let Schema::Decay(inner,_) = schema {
                 encode_ref(value, &**inner, buffer);
             }
+        },
+        Value::ValueComparator(value, _, _) => {
+            if let Schema::ValueComparator(inner, _) = schema {
+                encode_ref(value, &**inner, buffer);
+            }
         }
     }
 }

@@ -227,6 +227,10 @@ pub fn decode<R: Read>(schema: &Schema, reader: &mut R) -> Result<Value, Error> 
         Schema::Decay(ref inner, ref decay_meta) =>{
             let v = decode(inner, reader)?;
             Ok(Value::DecayRecord(Box::new(v),decay_meta.to_decay_settings()))
+        },
+        Schema::ValueComparator(ref inner, condition) => {
+            let v = decode(inner, reader)?;
+            Ok(Value::ValueComparator(Box::new(v), condition, None))
         }
     }
 }

@@ -510,7 +510,6 @@ extern crate crc;
 extern crate snap;
 
 // test dependency
-#[cfg(test)]
 #[macro_use]
 extern crate serde_derive;
 
