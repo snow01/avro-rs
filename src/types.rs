@@ -87,6 +87,31 @@ pub enum ValueComparison {
     GTE
 }
 
+impl ValueComparison {
+    pub fn is_true(self, existing_val: &Value, new_val: &Value) -> bool {
+        match (existing_val, new_val) {
+            (Value::Long(existing_val, _), Value::Long(new_val, _)) => {
+                match self {
+                    ValueComparison::GT => new_val > existing_val,
+                    ValueComparison::EQ => new_val == existing_val,
+                    ValueComparison::LT => new_val < existing_val,
+                    ValueComparison::LTE => new_val <= existing_val,
+                    ValueComparison::GTE => new_val >= existing_val,
+                }
+            }
+            (_, _) => false
+        }
+    }
+
+    pub fn get_value_to_compare(value: &Value) -> Option<&Value> {
+        match value {
+            Value::ValueComparator(value, ..) => Self::get_value_to_compare(value),
+            Value::Record(values, ..) => values.get(0).map(|(_, v)| v),
+            _ => None
+        }
+    }
+}
+
 /// Represents any valid Avro value
 /// More information about Avro values can be found in the
 /// [Avro Specification](https://avro.apache.org/docs/current/spec.html#schemas)
@@ -539,14 +564,23 @@ impl Value {
     }
 
     fn resolve_value_comparator(self, schema: &Schema, condition: ValueComparison, index: bool) ->  Result<Self, Error> {
-        let value = match self {
-            Value::ValueComparator(inner, _, _) =>  inner.resolve_internal(schema, index),
-            Value::Map(map,_)=> Value::Map(map, None).resolve_internal(schema, index),
+        let value: Result<(Value,bool),failure::Error> = match self {
+            Value::ValueComparator(inner, _, settings) =>  {
+                let index = settings.map_or_else(|| true, |v| v.index) && index;
+                let value = inner.resolve_internal(schema, index)?;
+                Ok((value,index))
+            },
+            Value::Map(map,settings)=> {
+                let index = settings.map_or_else(|| true, |v| v.index) && index;
+                let value = Value::Map(map, None).resolve_internal(schema, index)?;
+                Ok((value,index))
+            },
             other => Err(SchemaResolutionError::new(format!("ValueComparator or map expected, got {:?}", other)).into()),
-        }?;
+        };
 
-
-        Ok(Value::ValueComparator(Box::new(value), condition, None))
+        let (value,index) = value?;
+        let settings = Self::get_value_setting(index);
+        Ok(Value::ValueComparator(Box::new(value), condition, settings))
     }
 
     fn resolve_decay_record(self, schema: &Schema, index: bool,decay_meta: &DecayMeta) -> Result<Self, Error> { // Todo : Sohan
@@ -1140,7 +1174,7 @@ impl Value {
             Value::Counter(n, _) => json!(n),
             Value::UnionRecord(value, _, _) => value.json(),
             Value::DecayRecord(value, _) => value.json(),
-            Value::ValueComparator(value, _, _) => value.json(), // Todo : Sohan(visit it later)
+            Value::ValueComparator(value, _, _) => value.json(), // Todo : Sohan(visit it later) - shall return internal data or exact record
         }
     }
 

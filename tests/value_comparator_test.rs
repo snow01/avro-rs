@@ -19,7 +19,6 @@ const SIMPLE_SCHEMA: &str = r#"
       "name": "num_days",
       "type": "value_comparator",
       "condition": "GT",
-      "index": false,
       "value": {
         "name": "num_days_max",
         "type": "max",
@@ -175,6 +174,45 @@ fn test_read_map_as_value_comparator() {
     assert!(resolved.is_ok());
     println!("Final Avro =========> {:?}", resolved);
     println!("Final Json =========> {:?}", resolved.unwrap().json());
+}
+
+
+#[test]
+fn test_string_schema(){
+    let schema_str = r#"
+{
+  "cf": "t",
+  "name": "t",
+  "table": "user",
+  "doc": "Basic info",
+  "type": "record",
+  "index": true,
+  "fields": [
+    {
+      "name": "platform",
+      "type": "value_comparator",
+      "condition": "GT",
+      "value": {
+        "name": "inner_record",
+        "type": "record",
+        "fields": [
+          {
+            "name": "platform2",
+            "type": "string"
+          }
+        ]
+      }
+    }
+  ]
+}
+    "#;
+
+    let schema = Schema::parse_str(schema_str).unwrap();
+    println!("Schema {:?}",schema);
+
+
+
+
 }
 
 /*
