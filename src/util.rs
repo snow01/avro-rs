@@ -203,7 +203,7 @@ pub fn read_file(path: &str) -> std::io::Result<Vec<u8>> {
     let mut file = File::open(path)?;
     let mut data = Vec::new();
     file.read_to_end(&mut data)?;
-    return Ok(data);
+    Ok(data)
 }
 
 pub fn write_file(path: &str, data: &[u8]) -> std::io::Result<()> {
