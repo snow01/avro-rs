@@ -17,15 +17,16 @@ const SIMPLE_SCHEMA: &str = r#"
     },
     {
       "name": "num_days",
-      "type": "value_comparator",
-      "condition": "GT",
-      "value": {
-        "name": "num_days_max",
-        "type": "max",
-        "value":  {
-          "type": "long"
+      "type": {
+        "type": "value_comparator",
+        "condition": "GT",
+        "value": {
+          "name": "num_days_max",
+          "type": "max",
+          "value": {
+            "type": "long"
+          }
         }
-
       }
     }
   ]
@@ -34,20 +35,21 @@ const SIMPLE_SCHEMA: &str = r#"
 "#;
 
 const VALUE_COMPARATOR_SCHEMA: &str = r#"
- {
-      "name": "num_days",
-      "type": "value_comparator",
-      "condition": "GT",
+{
+  "name": "num_days",
+  "type": {
+    "type": "value_comparator",
+    "condition": "GT",
+    "value": {
+      "name": "num_days_max",
+      "type": "max",
       "value": {
-        "name": "num_days_max",
-        "type": "max",
-        "value":  {
-          "type": "long",
-          "index": "false"
-        }
-
+        "type": "long",
+        "index": "false"
       }
     }
+  }
+}
 "#;
 
 
