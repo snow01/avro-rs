@@ -37,6 +37,7 @@ fn encode_int(i: i32, buffer: &mut Vec<u8>) {
 /// be valid with regards to the schema. Schema are needed only to guide the
 /// encoding for complex type values.
 pub fn encode_ref(value: &Value, schema: &Schema, buffer: &mut Vec<u8>) {
+    println!("2value2 {:?} 2schema2 {:?}", value, schema);
     match value {
         Value::Null => (),
         Value::Boolean(b, _) => buffer.push(if *b { 1u8 } else { 0u8 }),
@@ -152,12 +153,12 @@ pub fn encode_ref(value: &Value, schema: &Schema, buffer: &mut Vec<u8>) {
                 encode_long(idx as i64, buffer); // encode index
                 encode_ref(&*item, inner_schema, buffer);
             }
-        },
-        Value::DecayRecord(value,_) => {
-            if let Schema::Decay(inner,_) = schema {
+        }
+        Value::DecayRecord(value, _) => {
+            if let Schema::Decay(inner, _) = schema {
                 encode_ref(value, &**inner, buffer);
             }
-        },
+        }
         Value::ValueComparator(value, _, _) => {
             if let Schema::ValueComparator(inner, _) = schema {
                 encode_ref(value, &**inner, buffer);

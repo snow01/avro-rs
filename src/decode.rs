@@ -214,7 +214,9 @@ pub fn decode<R: Read>(schema: &Schema, reader: &mut R) -> Result<Value, Error> 
             Ok(Value::LruSet(items, lru_limit.clone(), None))
         }
         Schema::Optional(ref inner) => {
+            println!("inner {:?}", inner);
             let index = zag_i64(reader)?;
+            println!("index {}", index);
             match index {
                 0 => Ok(Value::Optional(None, None)),
                 1 => decode(inner, reader).map(|x| Value::Optional(Some(Box::new(x)), None)),
@@ -224,10 +226,13 @@ pub fn decode<R: Read>(schema: &Schema, reader: &mut R) -> Result<Value, Error> 
         Schema::Counter => decode_counter(reader),
         Schema::Max(ref inner) => decode(inner, reader).map(|x| Value::Max(Box::new(x), None)),
         Schema::UnionRecord(ref inner) => decode_union_record(reader, inner),
-        Schema::Decay(ref inner, ref decay_meta) =>{
+        Schema::Decay(ref inner, ref decay_meta) => {
             let v = decode(inner, reader)?;
-            Ok(Value::DecayRecord(Box::new(v),decay_meta.to_decay_settings()))
-        },
+            Ok(Value::DecayRecord(
+                Box::new(v),
+                decay_meta.to_decay_settings(),
+            ))
+        }
         Schema::ValueComparator(ref inner, condition) => {
             let v = decode(inner, reader)?;
             Ok(Value::ValueComparator(Box::new(v), condition, None))
