@@ -7,9 +7,7 @@ use std::u8;
 use failure::Error;
 use serde_json::Value as JsonValue;
 
-use crate::schema::{
-    DateIndexKind, DecayMeta, RecordField, Schema, SchemaKind, UnionRecordSchema, UnionSchema,
-};
+use crate::schema::{DateIndexKind, RecordField, Schema, SchemaKind, UnionRecordSchema, UnionSchema, DecayMeta};
 use crate::LruLimit;
 use std::ops::Deref;
 
@@ -76,17 +74,42 @@ impl Indexable for DateValueSetting {
 #[derive(Clone, Debug, PartialEq)]
 pub struct DecaySetting {
     pub decay_type: String,
-    pub decay_rates: Vec<String>,
+    pub decay_rate: String,
 }
 
-pub const VALUE_COMPARATOR: &str = "value_comparator";
+pub const VALUE_COMPARATOR: &str  = "value_comparator" ;
 #[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum ValueComparison {
     EQ,
     LT,
     LTE,
     GT,
-    GTE,
+    GTE
+}
+
+impl ValueComparison {
+    pub fn is_true(self, existing_val: &Value, new_val: &Value) -> bool {
+        match (existing_val, new_val) {
+            (Value::Long(existing_val, _), Value::Long(new_val, _)) => {
+                match self {
+                    ValueComparison::GT => new_val > existing_val,
+                    ValueComparison::EQ => new_val == existing_val,
+                    ValueComparison::LT => new_val < existing_val,
+                    ValueComparison::LTE => new_val <= existing_val,
+                    ValueComparison::GTE => new_val >= existing_val,
+                }
+            }
+            (_, _) => false
+        }
+    }
+
+    pub fn get_value_to_compare(value: &Value) -> Option<&Value> {
+        match value {
+            Value::ValueComparator(value, ..) => Self::get_value_to_compare(value),
+            Value::Record(values, ..) => values.get(0).map(|(_, v)| v),
+            _ => None
+        }
+    }
 }
 
 /// Represents any valid Avro value
@@ -166,9 +189,9 @@ pub enum Value {
     /// A max avro value.
     Max(Box<Value>, Option<ValueSetting>),
 
-    DecayRecord(Box<Value>, Option<DecaySetting>),
+    DecayRecord(Box<Value>,Option<DecaySetting>),
 
-    ValueComparator(Box<Value>, ValueComparison, Option<ValueSetting>),
+    ValueComparator(Box<Value>, ValueComparison, Option<ValueSetting>)
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -397,7 +420,6 @@ impl Value {
     /// See the [Avro specification](https://avro.apache.org/docs/current/spec.html)
     /// for the full set of rules of schema validation.
     pub fn validate(&self, schema: &Schema) -> bool {
-        println!("1self1 {:?} 1schema1 {:?}", self, schema);
         match (self, schema) {
             (&Value::Null, &Schema::Null) => true,
             (&Value::Boolean(_, _), &Schema::Boolean) => true,
@@ -464,32 +486,31 @@ impl Value {
 
             (&Value::Counter(_, _), &Schema::Counter) => true,
 
-            (&Value::DecayRecord(ref value, _), &Schema::Decay(ref schema, _)) => {
-                if let (Schema::Record { .. }, Value::Record(..)) = (&**schema, &**value) {
+            (&Value::DecayRecord(ref value, _), &Schema::Decay(ref schema,_)) => {
+                if let (Schema::Record {..},Value::Record(..)) = (&**schema,&**value) {
                     value.validate(schema)
-                } else {
+                }else {
                     false
                 }
+
             }
-            (
-                &Value::ValueComparator(ref value, value_cond, _),
-                &Schema::ValueComparator(ref schema, schema_cond),
-            ) => {
+            (&Value::ValueComparator(ref value, value_cond, _), &Schema::ValueComparator(ref schema, schema_cond)) => {
                 if value_cond != schema_cond {
-                    return false;
+                    return false ;
                 }
                 value.validate_exact_record_type(schema)
             }
-            _ => false,
+             _ => false
         }
     }
 
     fn validate_exact_record_type(&self, schema: &Schema) -> bool {
-        if let (Schema::Record { .. }, Value::Record(..)) = (schema, self) {
-            return self.validate(schema);
+        if let (Schema::Record {..},Value::Record(..)) = (schema,self) {
+           return self.validate(schema) ;
         }
         false
     }
+
 
     /// Attempt to perform schema resolution on the value, with the given
     /// [Schema](../schema/enum.Schema.html).
@@ -537,58 +558,48 @@ impl Value {
             Schema::Counter => self.resolve_counter(false),
             // Todo(FIXME ::(sohan) pending union record) - would it come to this ?
             Schema::UnionRecord(ref inner) => self.resolve_union_record(inner, false),
-            Schema::Decay(ref inner, ref decay_meta) => {
-                self.resolve_decay_record(inner, false, decay_meta)
-            }
-            Schema::ValueComparator(ref inner, condition) => {
-                self.resolve_value_comparator(inner, condition, false)
-            }
+            Schema::Decay(ref inner,ref decay_meta) => self.resolve_decay_record(inner,false,decay_meta),
+            Schema::ValueComparator(ref inner, condition) => self.resolve_value_comparator(inner, condition, false)
         }
     }
 
-    fn resolve_value_comparator(
-        self,
-        schema: &Schema,
-        condition: ValueComparison,
-        index: bool,
-    ) -> Result<Self, Error> {
-        let value = match self {
-            Value::ValueComparator(inner, _, _) => inner.resolve_internal(schema, index),
-            Value::Map(map, _) => Value::Map(map, None).resolve_internal(schema, index),
-            other => Err(SchemaResolutionError::new(format!(
-                "ValueComparator or map expected, got {:?}",
-                other
-            ))
-            .into()),
-        }?;
+    fn resolve_value_comparator(self, schema: &Schema, condition: ValueComparison, index: bool) ->  Result<Self, Error> {
+        let value: Result<(Value,bool),failure::Error> = match self {
+            Value::ValueComparator(inner, _, settings) =>  {
+                let index = settings.map_or_else(|| true, |v| v.index) && index;
+                let value = inner.resolve_internal(schema, index)?;
+                Ok((value,index))
+            },
+            Value::Map(map,settings)=> {
+                let index = settings.map_or_else(|| true, |v| v.index) && index;
+                let value = Value::Map(map, None).resolve_internal(schema, index)?;
+                Ok((value,index))
+            },
+            other => Err(SchemaResolutionError::new(format!("ValueComparator or map expected, got {:?}", other)).into()),
+        };
 
-        Ok(Value::ValueComparator(Box::new(value), condition, None))
+        let (value,index) = value?;
+        let settings = Self::get_value_setting(index);
+        Ok(Value::ValueComparator(Box::new(value), condition, settings))
     }
 
-    fn resolve_decay_record(
-        self,
-        schema: &Schema,
-        index: bool,
-        decay_meta: &DecayMeta,
-    ) -> Result<Self, Error> {
-        // Todo : Sohan
+    fn resolve_decay_record(self, schema: &Schema, index: bool,decay_meta: &DecayMeta) -> Result<Self, Error> { // Todo : Sohan
         let decay_settings = decay_meta.to_decay_settings();
         match self {
-            Value::DecayRecord(value, _) => {
-                let value = value.resolve_internal(schema, index)?;
-                Ok(Value::DecayRecord(Box::new(value), decay_settings))
-            }
-            Value::Map(map, _) => {
+            Value::DecayRecord(value,_) => {
+                let value  = value.resolve_internal(schema,index)?;
+                Ok(Value::DecayRecord(Box::new(value),decay_settings))
+            },
+            Value::Map(map,_)=> {
                 let value = Value::Map(map, None);
                 let value = value.resolve_internal(schema, index)?;
-                Ok(Value::DecayRecord(Box::new(value), decay_settings))
+                Ok(Value::DecayRecord(Box::new(value),decay_settings))
             }
 
             other => Err(SchemaResolutionError::new(format!(
                 "DecayRecord or map expected, got {:?}",
                 other
-            ))
-            .into()),
+            )).into()),
         }
     }
 
@@ -637,12 +648,9 @@ impl Value {
             Schema::Counter => self.resolve_counter(index),
             Schema::Max(ref inner) => self.resolve_max(inner, index),
             Schema::UnionRecord(ref inner) => self.resolve_union_record(inner, index),
-            Schema::Decay(ref inner, ref decay_meta) => {
-                self.resolve_decay_record(inner, false, decay_meta)
-            }
-            Schema::ValueComparator(ref inner, condition) => {
-                self.resolve_value_comparator(inner, condition, index)
-            } // Todo : Sohan
+            Schema::Decay(ref inner,ref decay_meta) => self.resolve_decay_record(inner,false,decay_meta),
+            Schema::ValueComparator(ref inner, condition) => self.resolve_value_comparator(inner, condition, index) // Todo : Sohan
+
         }
     }
 
@@ -660,12 +668,9 @@ impl Value {
                 ))
             }
             Value::Map(map, _) => {
-                let r_type = map
-                    .get("_type")
-                    .ok_or_else(|| {
-                        SchemaResolutionError::new("No _type field found to resolve map")
-                    })
-                    .map(|v| v.clone())?;
+                let r_type = map.get("_type")
+                    .ok_or_else(|| SchemaResolutionError::new("No _type field found to resolve map"))
+                    .map(|v|v.clone())?;
 
                 Value::resolve_map_for_union_record(schema, map, r_type, index)
             }
@@ -1169,7 +1174,7 @@ impl Value {
             Value::Counter(n, _) => json!(n),
             Value::UnionRecord(value, _, _) => value.json(),
             Value::DecayRecord(value, _) => value.json(),
-            Value::ValueComparator(value, _, _) => value.json(), // Todo : Sohan(visit it later)
+            Value::ValueComparator(value, _, _) => value.json(), // Todo : Sohan(visit it later) - shall return internal data or exact record
         }
     }
 
@@ -1209,8 +1214,8 @@ impl Value {
     }
 }
 
-pub fn create_decay_record(r: Record, decay_settings: Option<DecaySetting>) -> Value {
-    Value::DecayRecord(Box::new(Value::Record(r.fields, None)), decay_settings)
+pub fn create_decay_record(r: Record,decay_settings : Option<DecaySetting>)-> Value {
+    Value::DecayRecord(Box::new(Value::Record(r.fields,None)),decay_settings)
 }
 
 #[cfg(test)]
