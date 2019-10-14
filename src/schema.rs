@@ -1606,11 +1606,4 @@ mod tests {
             format!("{}", schema.fingerprint::<Md5>())
         );
     }
-
-    #[test]
-    fn test_decay_record_build() {
-        let decay_rates = vec!["240 hours".to_string(), "2 hours".to_string()];
-        let schema = Schema::get_decay_record(decay_rates);
-        println!("schema {:?}", schema);
-    }
 }
