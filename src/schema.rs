@@ -1213,7 +1213,7 @@ impl Serialize for Schema {
                 let mut map = serializer.serialize_map(None)?;
                 map.serialize_entry("type", "decay")?;
                 map.serialize_entry("decay_type", &decay_meta.decay_type)?;
-                map.serialize_entry("decay_rate", &decay_meta.decay_rates)?;
+                map.serialize_entry("decay_rates", &decay_meta.decay_rates)?;
                 map.serialize_entry("fields", &decay_meta.fields)?;
                 map.end()
             }
