@@ -76,7 +76,7 @@ impl Indexable for DateValueSetting {
 #[derive(Clone, Debug, PartialEq)]
 pub struct DecaySetting {
     pub decay_type: String,
-    pub decay_rates: String,
+    pub decay_rates: Vec<String>,
 }
 
 pub const VALUE_COMPARATOR: &str = "value_comparator";

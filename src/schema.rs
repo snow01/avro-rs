@@ -1208,7 +1208,7 @@ impl Serialize for Schema {
                 }
                 seq.end()
             }
-            Schema::Decay(ref inner_schema, ref decay_meta) => {
+            Schema::Decay(ref _inner_schema, ref decay_meta) => {
                 // this will used while reading (should be same as json when creating write schema)
                 let mut map = serializer.serialize_map(None)?;
                 map.serialize_entry("type", "decay")?;
