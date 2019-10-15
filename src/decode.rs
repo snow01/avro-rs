@@ -214,9 +214,7 @@ pub fn decode<R: Read>(schema: &Schema, reader: &mut R) -> Result<Value, Error> 
             Ok(Value::LruSet(items, lru_limit.clone(), None))
         }
         Schema::Optional(ref inner) => {
-            println!("inner {:?}", inner);
             let index = zag_i64(reader)?;
-            println!("index {}", index);
             match index {
                 0 => Ok(Value::Optional(None, None)),
                 1 => decode(inner, reader).map(|x| Value::Optional(Some(Box::new(x)), None)),
